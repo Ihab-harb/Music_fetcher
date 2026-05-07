@@ -1,0 +1,22 @@
+# Secrets
+.env
+
+# Runtime data (token cache, song cache, metadata cache, folder list)
+data/
+uploads/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Claude Code per-developer settings (hooks, allowlists)
+.claude/settings.local.json

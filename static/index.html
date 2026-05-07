@@ -1,0 +1,753 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Music Fetcher</title>
+  <link rel="stylesheet" href="/static/tailwind.css" />
+  <style>
+    body { padding-bottom: 76px; }
+    .truncate-cell { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    #drop-zone.drag-over { border-color: #22c55e; background: rgba(34,197,94,0.05); }
+  </style>
+</head>
+<body class="bg-gray-950 text-gray-100 min-h-screen font-sans text-sm">
+
+  <!-- Header -->
+  <header class="bg-gray-900 border-b border-gray-800 px-6 py-3 flex items-center justify-between sticky top-0 z-20">
+    <span class="text-lg font-bold text-green-400">Music Fetcher</span>
+    <div class="flex items-center gap-3">
+      <span id="user-name" class="text-gray-400 text-xs hidden"></span>
+      <button onclick="logout()" id="logout-btn" class="hidden text-gray-600 hover:text-gray-300 text-xs underline">Logout</button>
+      <button onclick="login()" id="login-btn" class="bg-green-500 hover:bg-green-400 text-black font-bold px-4 py-2 rounded-full text-xs transition">
+        Connect Spotify
+      </button>
+    </div>
+  </header>
+
+  <!-- Not authenticated -->
+  <div id="not-auth-view" class="hidden flex flex-col items-center justify-center" style="min-height:70vh">
+    <div class="text-center space-y-3">
+      <div class="text-5xl">🎵</div>
+      <h2 class="text-xl font-bold">Connect your Spotify account</h2>
+      <p class="text-gray-500 text-xs">to match your local library and add songs to playlists</p>
+      <button onclick="login()" class="mt-2 bg-green-500 hover:bg-green-400 text-black font-bold px-8 py-3 rounded-full transition">
+        Connect with Spotify
+      </button>
+    </div>
+  </div>
+
+  <!-- Main view -->
+  <div id="main-view" class="hidden">
+
+    <!-- Source panel -->
+    <div class="bg-gray-900 border-b border-gray-800 px-4 py-3 space-y-3">
+
+      <!-- Folder paths -->
+      <div class="flex items-start gap-2 flex-wrap">
+        <span class="text-gray-500 text-xs pt-1.5 shrink-0">Folders:</span>
+        <div id="folder-chips" class="flex flex-wrap gap-2 flex-1"></div>
+        <div class="flex gap-2 items-center">
+          <input id="folder-path-input" type="text" placeholder="Browse or paste a folder path…"
+            class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-xs placeholder-gray-600 focus:outline-none focus:border-green-500 w-64"
+            onkeydown="if(event.key==='Enter') addFolder()" />
+          <button onclick="pickFolder()"
+            class="border border-gray-600 hover:border-green-500 px-3 py-1.5 rounded-lg text-xs transition">
+            Browse…
+          </button>
+          <button onclick="addFolder()"
+            class="bg-gray-700 hover:bg-gray-600 px-3 py-1.5 rounded-lg text-xs transition">
+            Add
+          </button>
+        </div>
+      </div>
+
+      <!-- Upload drop zone -->
+      <div id="drop-zone"
+        class="border-2 border-dashed border-gray-700 rounded-xl px-4 py-5 text-center hover:border-gray-500 transition"
+        ondragover="event.preventDefault(); this.classList.add('drag-over')"
+        ondragleave="this.classList.remove('drag-over')"
+        ondrop="handleDrop(event)">
+        <input id="file-input" type="file" multiple accept=".mp3,.flac,.m4a,.aac,.ogg" class="hidden" onchange="handleFileInput(this)" />
+        <input id="folder-input" type="file" webkitdirectory multiple class="hidden" onchange="handleFolderInput(this)" />
+        <p class="text-gray-500 text-xs mb-3">
+          Drag &amp; drop audio files or folders here, or:
+        </p>
+        <div class="flex gap-2 justify-center">
+          <button onclick="document.getElementById('file-input').click()"
+            class="border border-gray-600 hover:border-gray-400 px-4 py-2 rounded-lg text-xs transition">
+            Upload Files
+          </button>
+          <button onclick="document.getElementById('folder-input').click()"
+            class="border border-gray-600 hover:border-green-500 px-4 py-2 rounded-lg text-xs transition">
+            Upload Folder
+          </button>
+        </div>
+        <div id="upload-status" class="mt-3 text-xs text-green-400 hidden"></div>
+      </div>
+
+    </div>
+
+    <!-- Toolbar -->
+    <div class="bg-gray-900 border-b border-gray-800 px-4 py-2 flex items-center gap-2 flex-wrap">
+      <button id="search-btn" onclick="startSearch()"
+        class="bg-green-500 hover:bg-green-400 disabled:bg-gray-700 disabled:text-gray-500 disabled:cursor-not-allowed text-black font-bold px-4 py-2 rounded-full text-xs transition">
+        Find on Spotify
+      </button>
+      <button onclick="selectAllMatched()"
+        class="border border-gray-700 hover:border-gray-400 px-3 py-2 rounded-full text-xs transition">
+        Select All Matched
+      </button>
+      <button onclick="clearSelection()"
+        class="border border-gray-700 hover:border-gray-400 px-3 py-2 rounded-full text-xs transition">
+        Clear Selection
+      </button>
+      <input id="filter-input" oninput="filterChanged()" type="text" placeholder="Filter artist / title…"
+        class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-xs placeholder-gray-600 focus:outline-none focus:border-green-500 w-52" />
+      <select id="status-filter" onchange="filterChanged()"
+        class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-green-500">
+        <option value="all">All songs</option>
+        <option value="matched">Matched</option>
+        <option value="notfound">Not Found</option>
+        <option value="selected">Selected</option>
+      </select>
+    </div>
+
+    <!-- Progress -->
+    <div id="progress-bar-wrap" class="hidden bg-gray-900 border-b border-gray-800 px-4 py-3 space-y-2">
+      <div class="flex items-center gap-2">
+        <button onclick="stopSearch()" id="stop-btn"
+          class="bg-red-600 hover:bg-red-500 text-white font-bold px-3 py-1.5 rounded-full text-xs transition">
+          Stop
+        </button>
+        <button onclick="skipTrack()" id="skip-btn"
+          class="border border-gray-600 hover:border-yellow-500 hover:text-yellow-400 px-3 py-1.5 rounded-full text-xs transition">
+          Skip Track
+        </button>
+        <button onclick="continueSearch()" id="continue-btn"
+          class="hidden bg-green-600 hover:bg-green-500 text-white font-bold px-3 py-1.5 rounded-full text-xs transition">
+          Continue
+        </button>
+        <span class="ml-auto text-xs text-gray-500" id="progress-count"></span>
+      </div>
+      <div id="now-scanning" class="text-xs text-gray-400 truncate">
+        <span class="text-gray-600">Now scanning:</span> <span id="scanning-track">—</span>
+      </div>
+      <div class="w-full bg-gray-700 rounded-full h-1.5">
+        <div id="progress-fill" class="bg-green-500 h-1.5 rounded-full transition-all duration-150" style="width:0%"></div>
+      </div>
+    </div>
+
+    <!-- Stats -->
+    <div class="bg-gray-900 border-b border-gray-800 px-4 py-2 flex gap-5 text-xs text-gray-400">
+      <span>Total: <b id="stat-total" class="text-gray-200">0</b></span>
+      <span>Matched: <b id="stat-matched" class="text-green-400">0</b></span>
+      <span>Not Found: <b id="stat-notfound" class="text-red-400">0</b></span>
+      <span>Selected: <b id="stat-selected" class="text-blue-400">0</b></span>
+    </div>
+
+    <!-- Table -->
+    <div class="overflow-x-auto">
+      <table class="w-full text-xs">
+        <thead class="bg-gray-900 border-b border-gray-800 text-gray-400">
+          <tr>
+            <th class="px-3 py-2 w-8 text-center">
+              <input type="checkbox" id="header-cb" onchange="toggleSelectAll(this)" />
+            </th>
+            <th class="px-3 py-2 text-left w-8">#</th>
+            <th class="px-3 py-2 text-left">File</th>
+            <th class="px-3 py-2 text-left">Artist</th>
+            <th class="px-3 py-2 text-left">Title</th>
+            <th class="px-3 py-2 text-left">Spotify Match</th>
+            <th class="px-3 py-2 text-left w-20">Status</th>
+          </tr>
+        </thead>
+        <tbody id="tbody">
+          <tr><td colspan="7" class="px-4 py-12 text-center text-gray-600">
+            Add folders or upload files above, then click "Find on Spotify".
+          </td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Pagination -->
+    <div class="bg-gray-900 border-t border-gray-800 px-4 py-2 flex items-center justify-between text-xs text-gray-400">
+      <span id="page-info"></span>
+      <div class="flex gap-2">
+        <button onclick="prevPage()" id="prev-btn" disabled
+          class="border border-gray-700 hover:border-gray-500 disabled:opacity-30 disabled:cursor-not-allowed px-3 py-1 rounded transition">
+          ← Prev
+        </button>
+        <button onclick="nextPage()" id="next-btn" disabled
+          class="border border-gray-700 hover:border-gray-500 disabled:opacity-30 disabled:cursor-not-allowed px-3 py-1 rounded transition">
+          Next →
+        </button>
+      </div>
+    </div>
+
+    <!-- Selected playlist contents -->
+    <div id="playlist-panel" class="hidden bg-gray-900 border-t border-gray-800 px-4 py-3">
+      <div class="flex items-center gap-2 mb-2">
+        <span class="text-xs text-gray-500">Playlist:</span>
+        <span id="pl-panel-name" class="text-xs font-bold text-gray-200 truncate"></span>
+        <span id="pl-panel-count" class="text-xs text-gray-600 ml-auto"></span>
+      </div>
+      <div id="pl-panel-tracks" class="text-xs space-y-1 max-h-64 overflow-y-auto"></div>
+    </div>
+
+  </div><!-- /main-view -->
+
+  <!-- Bottom bar -->
+  <div id="bottom-bar" class="hidden fixed bottom-0 left-0 right-0 bg-gray-900 border-t border-gray-700 px-4 py-3 flex items-center gap-3 flex-wrap z-20">
+    <span class="text-xs text-gray-400"><b id="bottom-count" class="text-blue-400">0</b> selected</span>
+    <div class="flex-1"></div>
+    <select id="playlist-select" onchange="loadSelectedPlaylistTracks()"
+      class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-green-500 min-w-[180px]">
+      <option value="">Select a playlist…</option>
+    </select>
+    <button onclick="openModal()"
+      class="border border-gray-600 hover:border-green-500 px-3 py-2 rounded-lg text-xs transition">
+      + New
+    </button>
+    <button onclick="addToPlaylist()" id="add-btn"
+      class="bg-green-500 hover:bg-green-400 disabled:bg-gray-700 disabled:text-gray-500 disabled:cursor-not-allowed text-black font-bold px-5 py-2 rounded-full text-xs transition">
+      Add to Playlist
+    </button>
+  </div>
+
+  <!-- Create playlist modal -->
+  <div id="modal" class="hidden fixed inset-0 bg-black/70 flex items-center justify-center z-30">
+    <div class="bg-gray-900 rounded-xl p-6 w-80 border border-gray-700 shadow-xl">
+      <h3 class="font-bold mb-3">Create New Playlist</h3>
+      <input id="new-pl-name" type="text" placeholder="Playlist name…"
+        class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-xs mb-4 focus:outline-none focus:border-green-500"
+        onkeydown="if(event.key==='Enter') createPlaylist(); if(event.key==='Escape') closeModal();" />
+      <div class="flex gap-2 justify-end">
+        <button onclick="closeModal()" class="border border-gray-600 hover:border-gray-400 px-4 py-2 rounded-lg text-xs transition">Cancel</button>
+        <button onclick="createPlaylist()" class="bg-green-500 hover:bg-green-400 text-black font-bold px-4 py-2 rounded-lg text-xs transition">Create</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+  const PAGE_SIZE = 100;
+  const state = {
+    songs: [],
+    stats: { matched: 0, notFound: 0, selected: 0 },
+    searching: false,
+    stopped: false,
+    resumeIndex: 0,
+    page: 0,
+    filter: { text: '', status: 'all' },
+    renderTimer: null,
+    _es: null,
+  };
+
+  // rAF throttle: coalesces rapid SSE progress updates into one DOM write per frame
+  let _rafId = null, _rafData = null;
+  function scheduleProgressUpdate(d) {
+    _rafData = d;
+    if (_rafId) return;
+    _rafId = requestAnimationFrame(() => {
+      _rafId = null;
+      const ev = _rafData;
+      const pct = Math.round((ev.index + 1) / ev.total * 100);
+      document.getElementById('progress-fill').style.width = pct + '%';
+      document.getElementById('progress-count').textContent = `${ev.index + 1} / ${ev.total}`;
+      document.getElementById('scanning-track').textContent =
+        `${ev.song.artist || 'Unknown Artist'} — ${ev.song.title || ev.song.filename}`;
+    });
+  }
+
+  // ── Bootstrap ──────────────────────────────────────────────────────────────
+
+  async function init() {
+    const res = await fetch('/api/auth-status');
+    const data = await res.json();
+    if (data.authenticated) {
+      showMain(data.display_name);
+      loadPlaylists();
+      loadFolders();
+    } else {
+      showNotAuth();
+    }
+  }
+
+  function showNotAuth() {
+    document.getElementById('not-auth-view').classList.remove('hidden');
+    document.getElementById('main-view').classList.add('hidden');
+    document.getElementById('bottom-bar').classList.add('hidden');
+    document.getElementById('login-btn').classList.remove('hidden');
+    document.getElementById('user-name').classList.add('hidden');
+    document.getElementById('logout-btn').classList.add('hidden');
+  }
+
+  function showMain(name) {
+    document.getElementById('not-auth-view').classList.add('hidden');
+    document.getElementById('main-view').classList.remove('hidden');
+    document.getElementById('bottom-bar').classList.remove('hidden');
+    document.getElementById('login-btn').classList.add('hidden');
+    document.getElementById('user-name').textContent = name;
+    document.getElementById('user-name').classList.remove('hidden');
+    document.getElementById('logout-btn').classList.remove('hidden');
+  }
+
+  function login()  { window.location.href = '/login'; }
+  async function logout() {
+    if (state._es) { try { state._es.close(); } catch {} state._es = null; }
+    state.songs = [];
+    state.stats = { matched: 0, notFound: 0, selected: 0 };
+    state.page = 0;
+    state.searching = false;
+    state.stopped = false;
+    state.resumeIndex = 0;
+    showNotAuth();
+    try { await fetch('/api/logout'); } catch (e) { console.error('Logout request failed:', e); }
+  }
+
+  // ── Folder management ──────────────────────────────────────────────────────
+
+  async function loadFolders() {
+    const data = await fetch('/api/folders').then(r => r.json());
+    renderFolderChips(data.folders);
+  }
+
+  function renderFolderChips(folders) {
+    const container = document.getElementById('folder-chips');
+    if (folders.length === 0) {
+      container.innerHTML = '<span class="text-gray-600 text-xs pt-1.5">No folders added yet.</span>';
+      return;
+    }
+    container.innerHTML = folders.map((f, i) => `
+      <span class="flex items-center gap-1 bg-gray-800 border border-gray-700 rounded-lg px-2 py-1 text-xs text-gray-300">
+        <span class="text-gray-500">📁</span>
+        <span class="truncate max-w-xs" title="${esc(f)}">${esc(f)}</span>
+        <button onclick="removeFolder(${i})" class="text-gray-600 hover:text-red-400 ml-1 transition">✕</button>
+      </span>`).join('');
+  }
+
+  async function addFolder() {
+    const input = document.getElementById('folder-path-input');
+    const path = input.value.trim();
+    if (!path) return;
+    try {
+      const data = await fetch('/api/folders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path })
+      }).then(r => {
+        if (!r.ok) return r.json().then(e => { throw new Error(e.detail); });
+        return r.json();
+      });
+      input.value = '';
+      renderFolderChips(data.folders);
+    } catch(e) {
+      alert('Could not add folder: ' + e.message);
+    }
+  }
+
+  async function removeFolder(index) {
+    const data = await fetch(`/api/folders/${index}`, { method: 'DELETE' }).then(r => r.json());
+    renderFolderChips(data.folders);
+  }
+
+  async function pickFolder() {
+    try {
+      const res = await fetch('/api/pick-folder');
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || res.statusText);
+      }
+      const { path } = await res.json();
+      if (!path) return;
+      document.getElementById('folder-path-input').value = path;
+      addFolder();
+    } catch(e) {
+      alert('Could not open folder picker: ' + e.message);
+    }
+  }
+
+  // ── File upload ────────────────────────────────────────────────────────────
+
+  function handleFileInput(input) {
+    sendFiles([...input.files].map(f => ({ file: f, relativePath: f.name })));
+    input.value = '';
+  }
+
+  function handleFolderInput(input) {
+    const items = [...input.files].map(f => ({ file: f, relativePath: f.webkitRelativePath || f.name }));
+    sendFiles(items);
+    input.value = '';
+  }
+
+  async function handleDrop(e) {
+    e.preventDefault();
+    document.getElementById('drop-zone').classList.remove('drag-over');
+    const items = [...e.dataTransfer.items];
+    const collected = [];
+    for (const item of items) {
+      const entry = item.webkitGetAsEntry ? item.webkitGetAsEntry() : null;
+      if (entry) {
+        collected.push(...await collectEntries(entry, ''));
+      } else if (item.kind === 'file') {
+        const f = item.getAsFile();
+        if (f) collected.push({ file: f, relativePath: f.name });
+      }
+    }
+    if (collected.length) sendFiles(collected);
+  }
+
+  async function collectEntries(entry, base) {
+    if (entry.isFile) {
+      const file = await new Promise((res, rej) => entry.file(res, rej));
+      const rel = base ? `${base}/${entry.name}` : entry.name;
+      return [{ file, relativePath: rel }];
+    }
+    if (entry.isDirectory) {
+      const reader = entry.createReader();
+      const allEntries = [];
+      while (true) {
+        const batch = await new Promise((res, rej) => reader.readEntries(res, rej));
+        if (!batch.length) break;
+        allEntries.push(...batch);
+      }
+      const results = [];
+      const newBase = base ? `${base}/${entry.name}` : entry.name;
+      for (const e of allEntries) results.push(...await collectEntries(e, newBase));
+      return results;
+    }
+    return [];
+  }
+
+  async function sendFiles(items) {
+    const AUDIO_EXTS = new Set(['mp3', 'flac', 'm4a', 'aac', 'ogg']);
+    const audioItems = items.filter(({ file }) => AUDIO_EXTS.has(file.name.split('.').pop().toLowerCase()));
+    if (!audioItems.length) return;
+    const statusEl = document.getElementById('upload-status');
+    statusEl.textContent = `Uploading ${audioItems.length} file(s)…`;
+    statusEl.classList.remove('hidden');
+    const form = new FormData();
+    for (const { file, relativePath } of audioItems) form.append('files', file, relativePath);
+    try {
+      const data = await fetch('/api/upload', { method: 'POST', body: form }).then(r => r.json());
+      statusEl.textContent = `✓ ${data.count} file(s) uploaded.${data.skipped.length ? ` ${data.skipped.length} skipped.` : ''}`;
+    } catch(e) {
+      statusEl.textContent = 'Upload failed: ' + e.message;
+    }
+  }
+
+  // ── Playlists ──────────────────────────────────────────────────────────────
+
+  async function loadPlaylists() {
+    try {
+      const data = await fetch('/api/playlists').then(r => r.json());
+      const sel = document.getElementById('playlist-select');
+      sel.innerHTML = '<option value="">Select a playlist…</option>';
+      data.playlists.forEach(p => {
+        const o = document.createElement('option');
+        o.value = p.id; o.textContent = p.name;
+        sel.appendChild(o);
+      });
+    } catch(e) { console.error(e); }
+  }
+
+  function openModal()  { document.getElementById('modal').classList.remove('hidden'); document.getElementById('new-pl-name').focus(); }
+  function closeModal() { document.getElementById('modal').classList.add('hidden'); }
+
+  async function createPlaylist() {
+    const name = document.getElementById('new-pl-name').value.trim();
+    if (!name) return;
+    try {
+      const res = await fetch('/api/create-playlist', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name })
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: 'Unknown error' }));
+        throw new Error(err.detail || res.statusText);
+      }
+      const data = await res.json();
+      closeModal();
+      document.getElementById('new-pl-name').value = '';
+      const sel = document.getElementById('playlist-select');
+      const o = document.createElement('option');
+      o.value = data.id; o.textContent = data.name;
+      sel.appendChild(o); sel.value = data.id;
+      loadSelectedPlaylistTracks();
+    } catch(e) {
+      alert('Could not create playlist: ' + e.message);
+    }
+  }
+
+  async function loadSelectedPlaylistTracks() {
+    const sel = document.getElementById('playlist-select');
+    const panel = document.getElementById('playlist-panel');
+    const id = sel.value;
+    if (!id) { panel.classList.add('hidden'); return; }
+    const name = sel.options[sel.selectedIndex].textContent;
+    document.getElementById('pl-panel-name').textContent = name;
+    document.getElementById('pl-panel-count').textContent = 'loading…';
+    document.getElementById('pl-panel-tracks').innerHTML = '';
+    panel.classList.remove('hidden');
+    try {
+      const data = await fetch(`/api/playlist/${id}/tracks`).then(r => {
+        if (!r.ok) return r.json().then(e => { throw new Error(e.detail || r.statusText); });
+        return r.json();
+      });
+      const tracks = data.tracks || [];
+      document.getElementById('pl-panel-count').textContent = `${tracks.length} track${tracks.length === 1 ? '' : 's'}`;
+      document.getElementById('pl-panel-tracks').innerHTML = tracks.length
+        ? tracks.map(t => `<div class="truncate text-gray-300">${esc(t.artist)} — ${esc(t.name)}</div>`).join('')
+        : '<div class="text-gray-600">Empty playlist</div>';
+    } catch(e) {
+      document.getElementById('pl-panel-count').textContent = 'failed';
+      document.getElementById('pl-panel-tracks').innerHTML = `<div class="text-red-400">Could not load tracks: ${esc(e.message)}</div>`;
+    }
+  }
+
+  async function addToPlaylist() {
+    const pid = document.getElementById('playlist-select').value;
+    if (!pid) { alert('Please select a playlist first.'); return; }
+    const uris = state.songs.filter(s => s.selected && s.match).map(s => s.match.uri);
+    if (!uris.length) { alert('No matched tracks selected.'); return; }
+    const btn = document.getElementById('add-btn');
+    btn.disabled = true; btn.textContent = 'Adding…';
+    try {
+      const data = await fetch('/api/add-to-playlist', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ playlist_id: pid, track_uris: uris })
+      }).then(r => r.json());
+      let msg = `Added ${data.added} track${data.added === 1 ? '' : 's'} to playlist.`;
+      if (data.duplicates_skipped) msg += ` Skipped ${data.duplicates_skipped} duplicate${data.duplicates_skipped === 1 ? '' : 's'}.`;
+      alert(msg);
+      loadSelectedPlaylistTracks();
+    } catch(e) { alert('Failed: ' + e.message); }
+    btn.disabled = false; btn.textContent = 'Add to Playlist';
+  }
+
+  // ── Search stream ──────────────────────────────────────────────────────────
+
+  function startSearch(resume = false) {
+    if (state.searching) return;
+    if (!resume) {
+      state.songs = [];
+      state.page = 0;
+      state.stats = { matched: 0, notFound: 0, selected: 0 };
+    }
+    state.searching = true;
+    state.stopped = false;
+
+    document.getElementById('search-btn').disabled = true;
+    document.getElementById('progress-bar-wrap').classList.remove('hidden');
+    document.getElementById('stop-btn').classList.remove('hidden');
+    document.getElementById('skip-btn').classList.remove('hidden');
+    document.getElementById('continue-btn').classList.add('hidden');
+    document.getElementById('scanning-track').textContent = '—';
+
+    const startIdx = resume ? state.resumeIndex : 0;
+    const es = new EventSource(`/api/search-stream?start_index=${startIdx}`);
+    state._es = es;
+
+    es.onmessage = e => {
+      const d = JSON.parse(e.data);
+
+      if (d.stopped || d.rate_limited) {
+        es.close();
+        state.searching = false;
+        state.stopped = true;
+        state.resumeIndex = d.index;
+        document.getElementById('search-btn').disabled = false;
+        document.getElementById('stop-btn').classList.add('hidden');
+        document.getElementById('skip-btn').classList.add('hidden');
+        document.getElementById('continue-btn').classList.remove('hidden');
+        if (d.rate_limited) {
+          const mins = Math.max(1, Math.ceil(d.retry_after / 60));
+          document.getElementById('scanning-track').textContent =
+            `⚠ Spotify rate limit reached at ${d.index} / ${d.total}. Try again in ~${mins} min.`;
+        } else {
+          document.getElementById('scanning-track').textContent = `Paused at ${d.index} / ${d.total}`;
+        }
+        scheduleRender();
+        return;
+      }
+
+      if (d.done) {
+        es.close();
+        state.searching = false;
+        state.stopped = false;
+        state.resumeIndex = 0;
+        document.getElementById('search-btn').disabled = false;
+        document.getElementById('progress-bar-wrap').classList.add('hidden');
+        renderTable();
+        return;
+      }
+
+      state.songs.push({ idx: state.songs.length, song: d.song, match: d.match, selected: false });
+      if (d.match) state.stats.matched++;
+      else if (d.match === null) state.stats.notFound++;
+      state.resumeIndex = d.index + 1;
+
+      scheduleProgressUpdate(d);
+      if ((d.index + 1) % 500 === 0) scheduleRender();
+    };
+
+    es.onerror = () => {
+      es.close();
+      state.searching = false;
+      document.getElementById('search-btn').disabled = false;
+      if (!state.stopped) document.getElementById('progress-bar-wrap').classList.add('hidden');
+      scheduleRender();
+    };
+  }
+
+  function stopSearch()     { fetch('/api/search-control/stop', { method: 'POST' }); }
+  function skipTrack()      { fetch('/api/search-control/skip', { method: 'POST' }); }
+  function continueSearch() { startSearch(true); }
+
+  function scheduleRender() {
+    if (state.renderTimer) return;
+    state.renderTimer = setTimeout(() => { state.renderTimer = null; renderTable(); }, 300);
+  }
+
+  // ── Filtering / selection ──────────────────────────────────────────────────
+
+  function getFiltered() {
+    const { text, status } = state.filter;
+    return state.songs.filter(item => {
+      const { song, match, selected } = item;
+      if (status === 'matched'  && !match)        return false;
+      if (status === 'notfound' && match !== null) return false;
+      if (status === 'selected' && !selected)      return false;
+      if (text) {
+        const q = text.toLowerCase();
+        return song.artist.toLowerCase().includes(q) ||
+               song.title.toLowerCase().includes(q)  ||
+               song.filename.toLowerCase().includes(q);
+      }
+      return true;
+    });
+  }
+
+  let _filterTimer = null;
+  function filterChanged() {
+    clearTimeout(_filterTimer);
+    _filterTimer = setTimeout(() => {
+      state.filter.text   = document.getElementById('filter-input').value;
+      state.filter.status = document.getElementById('status-filter').value;
+      state.page = 0;
+      renderTable();
+    }, 200);
+  }
+
+  function selectAllMatched() {
+    let added = 0;
+    state.songs.forEach(s => { if (s.match && !s.selected) { s.selected = true; added++; } });
+    state.stats.selected += added;
+    renderTable();
+  }
+
+  function clearSelection() {
+    state.songs.forEach(s => s.selected = false);
+    state.stats.selected = 0;
+    renderTable();
+  }
+
+  function toggleSelectAll(cb) {
+    const filtered = getFiltered();
+    let delta = 0;
+    for (const item of filtered) {
+      if (!item.match) continue;
+      if (cb.checked && !item.selected)      { item.selected = true;  delta++; }
+      else if (!cb.checked && item.selected) { item.selected = false; delta--; }
+    }
+    state.stats.selected += delta;
+    renderTable();
+  }
+
+  function toggleRow(globalIdx) {
+    const item = state.songs[globalIdx];
+    if (!item.match) return;
+    item.selected = !item.selected;
+    if (item.selected) state.stats.selected++;
+    else state.stats.selected--;
+    const rowEl = document.querySelector(`tr[data-idx="${globalIdx}"]`);
+    if (rowEl) {
+      rowEl.querySelector('input[type=checkbox]').checked = item.selected;
+      rowEl.classList.toggle('bg-gray-900/60', item.selected);
+    }
+    updateStats();
+  }
+
+  // ── Render ─────────────────────────────────────────────────────────────────
+
+  function esc(s) {
+    if (!s) return '';
+    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  function renderTable() {
+    const filtered = getFiltered();
+    const start = state.page * PAGE_SIZE;
+    const page  = filtered.slice(start, start + PAGE_SIZE);
+    const tbody = document.getElementById('tbody');
+
+    if (page.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="7" class="px-4 py-12 text-center text-gray-600">${
+        state.songs.length === 0
+          ? 'Add folders or upload files above, then click "Find on Spotify".'
+          : 'No songs match the current filter.'
+      }</td></tr>`;
+    } else {
+      tbody.innerHTML = page.map((item, i) => {
+        const globalIdx = item.idx;
+        const { song, match, selected } = item;
+        const statusHtml = match
+          ? '<span class="text-green-400">Matched</span>'
+          : match === null
+            ? '<span class="text-red-400">Not Found</span>'
+            : '<span class="text-gray-600">—</span>';
+        const matchHtml = match
+          ? `<div class="truncate-cell text-green-300">${esc(match.artist)} — ${esc(match.name)}</div>
+             <div class="truncate-cell text-gray-600">${esc(match.album)}</div>`
+          : match === null ? '<span class="text-gray-700">—</span>' : '';
+        return `<tr data-idx="${globalIdx}" class="border-b border-gray-800/60 hover:bg-gray-900/40 ${selected ? 'bg-gray-900/60' : ''}">
+          <td class="px-3 py-2 text-center">
+            <input type="checkbox" ${selected ? 'checked' : ''} ${!match ? 'disabled' : ''} onchange="toggleRow(${globalIdx})" />
+          </td>
+          <td class="px-3 py-2 text-gray-600">${start + i + 1}</td>
+          <td class="px-3 py-2 text-gray-500 truncate-cell" title="${esc(song.filename)}">${esc(song.filename)}</td>
+          <td class="px-3 py-2 truncate-cell" title="${esc(song.artist)}">${esc(song.artist) || '<span class="text-gray-700">Unknown</span>'}</td>
+          <td class="px-3 py-2 truncate-cell" title="${esc(song.title)}">${esc(song.title) || '<span class="text-gray-700">Unknown</span>'}</td>
+          <td class="px-3 py-2">${matchHtml}</td>
+          <td class="px-3 py-2">${statusHtml}</td>
+        </tr>`;
+      }).join('');
+    }
+
+    const total = filtered.length;
+    const totalPages = Math.ceil(total / PAGE_SIZE);
+    document.getElementById('page-info').textContent = total
+      ? `${start + 1}–${Math.min(start + PAGE_SIZE, total)} of ${total}` : '';
+    document.getElementById('prev-btn').disabled = state.page === 0;
+    document.getElementById('next-btn').disabled = state.page >= totalPages - 1;
+    updateStats();
+  }
+
+  function updateStats() {
+    const { matched, notFound, selected } = state.stats;
+    document.getElementById('stat-total').textContent    = state.songs.length;
+    document.getElementById('stat-matched').textContent  = matched;
+    document.getElementById('stat-notfound').textContent = notFound;
+    document.getElementById('stat-selected').textContent = selected;
+    document.getElementById('bottom-count').textContent  = selected;
+  }
+
+  function prevPage() { if (state.page > 0) { state.page--; renderTable(); } }
+  function nextPage() {
+    if (state.page < Math.ceil(getFiltered().length / PAGE_SIZE) - 1) { state.page++; renderTable(); }
+  }
+
+  init();
+  </script>
+</body>
+</html>
