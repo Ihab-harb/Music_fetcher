@@ -4,9 +4,9 @@ import asyncio
 import re
 import shutil
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Literal, Optional
 from fastapi import FastAPI, HTTPException, UploadFile, File
-from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from mutagen import File as MutagenFile
 from pydantic import BaseModel
@@ -246,7 +246,7 @@ def search_spotify_track(sp: spotipy.Spotify, artist: str, title: str) -> Option
 
 @app.get("/")
 def root():
-    return HTMLResponse(open("static/index.html", encoding="utf-8").read())
+    return FileResponse("static/index.html", media_type="text/html; charset=utf-8")
 
 
 @app.get("/login")
@@ -255,13 +255,13 @@ def login():
 
 
 @app.get("/callback")
-def callback(code: str = None, error: str = None):
+def callback(code: Optional[str] = None, error: Optional[str] = None):
     if error:
         return HTMLResponse(f"<p>Authorization error: {error}</p>")
     if not code:
         return HTMLResponse("<p>No code received.</p>")
     get_sp_oauth().get_access_token(code)
-    return RedirectResponse("http://127.0.0.1:8000/")
+    return RedirectResponse("/")
 
 
 @app.get("/api/auth-status")
@@ -444,9 +444,8 @@ async def upload_files(files: List[UploadFile] = File(...)):
 # ── Search stream ─────────────────────────────────────────────────────────────
 
 @app.post("/api/search-control/{action}")
-def search_control(action: str):
-    if action in ("stop", "skip"):
-        _search_state[action] = True
+def search_control(action: Literal["stop", "skip"]):
+    _search_state[action] = True
     return {"ok": True}
 
 

@@ -6,225 +6,682 @@
   <title>Music Fetcher</title>
   <link rel="stylesheet" href="/static/tailwind.css" />
   <style>
-    body { padding-bottom: 76px; }
-    .truncate-cell { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    #drop-zone.drag-over { border-color: #22c55e; background: rgba(34,197,94,0.05); }
+    :root {
+      --green: #1db954;
+      --green-light: #1ed760;
+      --green-dark: #169c46;
+      --green-soft: rgba(29,185,84,.12);
+      --green-edge: rgba(29,185,84,.28);
+      --bg: #0a0a0a;
+      --surface: #121212;
+      --surface-2: #1a1a1a;
+      --line: #262626;
+      --text: #e5e5e5;
+      --text-dim: #a3a3a3;
+      --text-faint: #6b6b6b;
+      --red: #ef4444;
+      --yellow: #eab308;
+      --blue: #60a5fa;
+    }
+
+    * { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      padding-bottom: 80px;
+      min-height: 100vh;
+    }
+
+    /* ── color overrides on top of pre-built Tailwind so dark surfaces stay consistent ── */
+    .bg-gray-950 { background: var(--bg) !important; }
+    .bg-gray-900 { background: var(--surface) !important; }
+    .bg-gray-800 { background: var(--surface-2) !important; }
+    .bg-gray-700 { background: #2a2a2a !important; }
+    .border-gray-800, .border-gray-700, .border-gray-600 { border-color: var(--line) !important; }
+    .border-gray-800\/60 { border-color: rgba(38,38,38,.6) !important; }
+    .text-gray-400 { color: var(--text-dim) !important; }
+    .text-gray-500 { color: var(--text-faint) !important; }
+    .text-gray-600 { color: #525252 !important; }
+    .text-green-400, .text-green-500 { color: var(--green-light) !important; }
+    .text-green-300 { color: #4ade80 !important; }
+    .bg-green-500 { background: var(--green) !important; }
+    .hover\:bg-green-400:hover { background: var(--green-light) !important; }
+    .bg-green-600 { background: var(--green-dark) !important; }
+    .hover\:bg-green-500:hover { background: var(--green) !important; }
+
+    /* ── scrollbar polish ── */
+    * { scrollbar-width: thin; scrollbar-color: #2a2a2a transparent; }
+    *::-webkit-scrollbar { width: 8px; height: 8px; }
+    *::-webkit-scrollbar-track { background: transparent; }
+    *::-webkit-scrollbar-thumb { background: #2a2a2a; border-radius: 8px; }
+    *::-webkit-scrollbar-thumb:hover { background: #3f3f3f; }
+
+    /* ── focus ring ── */
+    :focus-visible { outline: 2px solid var(--green); outline-offset: 2px; border-radius: 4px; }
+    button:focus-visible, .btn:focus-visible { outline-offset: 3px; }
+
+    /* ── header ── */
+    .header {
+      position: sticky; top: 0; z-index: 30;
+      background: linear-gradient(180deg, #161616, #0f0f0f);
+      border-bottom: 1px solid var(--line);
+      padding: 14px 24px;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .brand {
+      display: inline-flex; align-items: center; gap: 10px;
+      font-size: 18px; font-weight: 700; letter-spacing: -0.01em;
+      color: var(--text);
+    }
+    .brand .dot {
+      width: 10px; height: 10px; border-radius: 50%;
+      background: var(--green);
+      box-shadow: 0 0 12px var(--green-edge);
+    }
+
+    /* ── auth indicator ── */
+    .auth-pill {
+      display: inline-flex; align-items: center; gap: 7px;
+      font-size: 11px; color: var(--text-dim);
+      padding: 4px 10px;
+      background: var(--surface-2);
+      border: 1px solid var(--line);
+      border-radius: 999px;
+    }
+    .auth-led {
+      width: 7px; height: 7px; border-radius: 50%;
+      background: #404040;
+    }
+    .auth-led.on {
+      background: var(--green);
+      box-shadow: 0 0 8px var(--green-edge);
+      animation: pulse-soft 2.4s ease-in-out infinite;
+    }
+    @keyframes pulse-soft { 50% { opacity: .6; } }
+
+    /* ── buttons ── */
+    .btn {
+      display: inline-flex; align-items: center; justify-content: center;
+      gap: 6px;
+      font-size: 12px; font-weight: 600;
+      padding: 8px 14px;
+      border-radius: 999px;
+      border: 1px solid transparent;
+      transition: background .15s, border-color .15s, color .15s, box-shadow .15s, transform .08s;
+      cursor: pointer;
+      line-height: 1;
+      white-space: nowrap;
+    }
+    .btn:active { transform: translateY(1px); }
+    .btn:disabled { opacity: .35; cursor: not-allowed; transform: none; }
+
+    .btn-primary {
+      background: var(--green);
+      color: #052612;
+      font-weight: 700;
+    }
+    .btn-primary:hover:not(:disabled) {
+      background: var(--green-light);
+      box-shadow: 0 0 0 4px rgba(29,185,84,.18);
+    }
+    .btn-primary:disabled { background: #2a2a2a; color: var(--text-faint); }
+
+    .btn-ghost {
+      background: transparent;
+      color: var(--text-dim);
+      border-color: var(--line);
+    }
+    .btn-ghost:hover:not(:disabled) {
+      color: var(--text);
+      border-color: #404040;
+      background: rgba(255,255,255,.02);
+    }
+
+    .btn-danger {
+      background: rgba(239,68,68,.1);
+      color: #fca5a5;
+      border-color: rgba(239,68,68,.35);
+    }
+    .btn-danger:hover:not(:disabled) {
+      background: var(--red);
+      color: white;
+      border-color: var(--red);
+    }
+
+    .btn-warn {
+      background: rgba(234,179,8,.08);
+      color: #facc15;
+      border-color: rgba(234,179,8,.3);
+    }
+    .btn-warn:hover:not(:disabled) {
+      background: rgba(234,179,8,.18);
+      border-color: var(--yellow);
+    }
+
+    .btn-success {
+      background: var(--green-soft);
+      color: #4ade80;
+      border-color: var(--green-edge);
+    }
+    .btn-success:hover:not(:disabled) {
+      background: var(--green);
+      color: #052612;
+      border-color: var(--green);
+    }
+
+    /* ── inputs ── */
+    .input {
+      background: var(--surface-2);
+      border: 1px solid var(--line);
+      color: var(--text);
+      font-size: 12px;
+      padding: 8px 12px;
+      border-radius: 8px;
+      outline: none;
+      transition: border-color .15s, box-shadow .15s;
+    }
+    .input::placeholder { color: var(--text-faint); }
+    .input:focus {
+      border-color: var(--green);
+      box-shadow: 0 0 0 3px rgba(29,185,84,.15);
+    }
+    select.input {
+      cursor: pointer;
+      appearance: none;
+      background-image:
+        linear-gradient(45deg, transparent 50%, var(--text-dim) 50%),
+        linear-gradient(135deg, var(--text-dim) 50%, transparent 50%);
+      background-position: calc(100% - 14px) 50%, calc(100% - 9px) 50%;
+      background-size: 5px 5px, 5px 5px;
+      background-repeat: no-repeat;
+      padding-right: 28px;
+    }
+
+    /* ── section ── */
+    .section {
+      background: var(--surface);
+      border-bottom: 1px solid var(--line);
+      padding: 16px 24px;
+    }
+    .section-label {
+      display: inline-block;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--text-faint);
+      margin-bottom: 10px;
+    }
+
+    /* ── folder chip ── */
+    .chip {
+      display: inline-flex; align-items: center; gap: 7px;
+      background: var(--surface-2);
+      border: 1px solid var(--line);
+      border-left: 2px solid var(--green);
+      padding: 5px 9px 5px 8px;
+      font-size: 11px;
+      color: var(--text);
+      border-radius: 4px;
+      max-width: 360px;
+      transition: background .12s, border-color .12s;
+    }
+    .chip:hover { background: #1f1f1f; }
+    .chip-glyph { font-size: 10px; opacity: .6; }
+    .chip-path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .chip-x {
+      color: var(--text-faint);
+      cursor: pointer;
+      padding: 0 3px;
+      font-size: 11px;
+      transition: color .12s;
+    }
+    .chip-x:hover { color: var(--red); }
+
+    /* ── drop zone ── */
+    .drop-zone {
+      border: 1.5px dashed var(--line);
+      background: rgba(255,255,255,.01);
+      border-radius: 12px;
+      padding: 28px 18px;
+      text-align: center;
+      transition: border-color .15s, background-color .15s, box-shadow .15s;
+    }
+    .drop-zone:hover { border-color: #3a3a3a; }
+    .drop-zone.drag-over {
+      border-color: var(--green);
+      background: var(--green-soft);
+      box-shadow: inset 0 0 0 3px rgba(29,185,84,.08);
+    }
+    .drop-zone .hint { color: var(--text-dim); font-size: 12px; }
+    .drop-zone .hint b { color: var(--text); font-weight: 600; }
+
+    /* ── stat cards ── */
+    .stats { display: flex; gap: 8px; flex-wrap: wrap; padding: 14px 24px; background: var(--surface); border-bottom: 1px solid var(--line); }
+    .stat {
+      display: flex; flex-direction: column;
+      gap: 2px;
+      padding: 8px 14px;
+      background: var(--surface-2);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      min-width: 92px;
+    }
+    .stat-label {
+      font-size: 10px;
+      color: var(--text-faint);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      font-weight: 600;
+    }
+    .stat-value { font-size: 18px; font-weight: 700; line-height: 1.1; font-variant-numeric: tabular-nums; }
+    .stat--matched .stat-value  { color: #4ade80; }
+    .stat--notfound .stat-value { color: #f87171; }
+    .stat--skipped .stat-value  { color: #facc15; }
+    .stat--selected .stat-value { color: var(--blue); }
+
+    /* ── status badges ── */
+    .badge {
+      display: inline-flex; align-items: center;
+      padding: 2px 9px;
+      border-radius: 999px;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      border: 1px solid transparent;
+      font-variant-numeric: tabular-nums;
+    }
+    .badge--matched  { background: var(--green-soft); color: #4ade80; border-color: var(--green-edge); }
+    .badge--notfound { background: rgba(239,68,68,.1); color: #f87171; border-color: rgba(239,68,68,.3); }
+    .badge--skipped  { background: rgba(234,179,8,.1); color: #facc15; border-color: rgba(234,179,8,.3); }
+    .badge--idle     { background: rgba(115,115,115,.1); color: var(--text-faint); border-color: var(--line); }
+
+    /* ── progress bar ── */
+    .progress-track {
+      position: relative;
+      height: 6px;
+      background: #1a1a1a;
+      border-radius: 999px;
+      overflow: hidden;
+    }
+    .progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, var(--green-dark), var(--green-light));
+      box-shadow: 0 0 8px rgba(29,185,84,.45);
+      transition: width .12s linear;
+    }
+
+    /* ── pulse-dot indicator (used in "now scanning") ── */
+    .pulse-dot::before {
+      content: '';
+      display: inline-block;
+      width: 7px; height: 7px;
+      margin-right: 8px;
+      border-radius: 50%;
+      background: var(--green);
+      vertical-align: middle;
+      animation: pulse-ring 1.6s ease-out infinite;
+    }
+    @keyframes pulse-ring {
+      0%   { box-shadow: 0 0 0 0 rgba(29,185,84,.55); }
+      70%  { box-shadow: 0 0 0 7px rgba(29,185,84,0); }
+      100% { box-shadow: 0 0 0 0 rgba(29,185,84,0); }
+    }
+
+    /* ── table ── */
+    .data-table { width: 100%; font-size: 12px; border-collapse: collapse; }
+    .data-table thead th {
+      background: var(--surface);
+      color: var(--text-dim);
+      font-weight: 600;
+      font-size: 10px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      position: sticky;
+      top: 0;
+    }
+    .data-table tbody tr {
+      border-bottom: 1px solid rgba(38,38,38,.5);
+      transition: background-color .12s;
+    }
+    .data-table tbody tr:hover { background: rgba(29,185,84,.04); }
+    .data-table tbody tr.is-selected { background: rgba(29,185,84,.07); }
+    .data-table tbody tr.is-selected:hover { background: rgba(29,185,84,.11); }
+    .data-table tbody td { padding: 9px 14px; vertical-align: middle; }
+    .row-num { color: var(--text-faint); font-size: 11px; font-variant-numeric: tabular-nums; }
+    .truncate-cell { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    /* ── checkbox ── */
+    input[type="checkbox"] {
+      appearance: none; -webkit-appearance: none;
+      width: 14px; height: 14px;
+      border: 1px solid #3a3a3a;
+      background: var(--surface-2);
+      border-radius: 3px;
+      cursor: pointer;
+      position: relative;
+      vertical-align: middle;
+      transition: border-color .12s, background .12s, box-shadow .12s;
+    }
+    input[type="checkbox"]:hover:not(:disabled) { border-color: var(--green); }
+    input[type="checkbox"]:checked {
+      background: var(--green);
+      border-color: var(--green);
+      box-shadow: 0 0 0 3px rgba(29,185,84,.18);
+    }
+    input[type="checkbox"]:checked::after {
+      content: '✓';
+      position: absolute; inset: 0;
+      display: flex; align-items: center; justify-content: center;
+      color: #052612; font-size: 11px; font-weight: 900; line-height: 1;
+    }
+    input[type="checkbox"]:disabled { opacity: .25; cursor: not-allowed; }
+
+    /* ── pagination strip ── */
+    .strip {
+      background: var(--surface);
+      border-top: 1px solid var(--line);
+      padding: 10px 24px;
+      display: flex; align-items: center; justify-content: space-between;
+      font-size: 11px;
+      color: var(--text-dim);
+    }
+
+    /* ── playlist preview ── */
+    .pl-panel {
+      background: var(--surface);
+      border-top: 1px solid var(--line);
+      padding: 16px 24px;
+    }
+    .pl-track {
+      padding: 6px 10px;
+      border-left: 2px solid var(--line);
+      color: var(--text-dim);
+      font-size: 12px;
+      border-radius: 0 4px 4px 0;
+      transition: border-color .12s, background-color .12s, color .12s;
+    }
+    .pl-track:hover { border-left-color: var(--green); background: rgba(29,185,84,.04); color: var(--text); }
+    .pl-tracks-scroll { max-height: 220px; overflow-y: auto; padding-right: 6px; }
+
+    /* ── bottom bar ── */
+    .bottom-bar {
+      position: fixed;
+      bottom: 0; left: 0; right: 0;
+      background: linear-gradient(180deg, #161616, #0f0f0f);
+      border-top: 1px solid var(--line);
+      box-shadow: 0 -8px 24px -8px rgba(0,0,0,.5);
+      padding: 12px 24px;
+      display: flex; align-items: center; gap: 14px;
+      z-index: 30;
+    }
+
+    /* ── modal ── */
+    .modal-overlay {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,.7);
+      backdrop-filter: blur(4px);
+      display: flex; align-items: center; justify-content: center;
+      z-index: 60;
+      animation: modal-in .15s ease-out;
+    }
+    .modal-card {
+      width: 22rem;
+      background: var(--surface-2);
+      border: 1px solid var(--line);
+      box-shadow: 0 30px 80px rgba(0,0,0,.6), 0 0 0 1px rgba(29,185,84,.08);
+      padding: 22px;
+      border-radius: 12px;
+      animation: modal-in .2s cubic-bezier(.2,1,.4,1);
+    }
+    @keyframes modal-in { from { opacity: 0; transform: translateY(6px); } }
+
+    /* ── toasts ── */
+    #toast-host {
+      position: fixed; top: 1rem; right: 1rem;
+      z-index: 100;
+      display: flex; flex-direction: column; gap: .5rem;
+      pointer-events: none;
+    }
+    .toast {
+      pointer-events: auto;
+      background: var(--surface-2);
+      border: 1px solid var(--line);
+      border-left: 3px solid var(--green);
+      padding: 10px 14px;
+      border-radius: 8px;
+      color: var(--text);
+      font-size: 12px;
+      min-width: 240px; max-width: 380px;
+      box-shadow: 0 12px 28px -8px rgba(0,0,0,.55);
+      animation: toast-in .22s cubic-bezier(.2,1,.4,1);
+      line-height: 1.45;
+    }
+    .toast--err  { border-left-color: var(--red); }
+    .toast--warn { border-left-color: var(--yellow); }
+    .toast.hide  { animation: toast-out .18s forwards; }
+    @keyframes toast-in  { from { transform: translateX(14px); opacity: 0; } }
+    @keyframes toast-out { to   { transform: translateX(14px); opacity: 0; } }
+
+    /* ── hero (not authenticated) ── */
+    .hero {
+      min-height: 78vh;
+      display: flex; align-items: center; justify-content: center;
+      padding: 40px 24px;
+    }
+    .hero-stage { text-align: center; max-width: 32rem; }
+    .hero-icon {
+      width: 84px; height: 84px;
+      border-radius: 50%;
+      background: radial-gradient(circle, var(--green) 0 6px, #0a0a0a 6px 9px, var(--surface-2) 9px 100%);
+      box-shadow: 0 0 60px rgba(29,185,84,.18), inset 0 0 30px rgba(0,0,0,.5);
+      margin: 0 auto 24px;
+      display: grid; place-items: center;
+      animation: spin 9s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .hero-title { font-size: 32px; font-weight: 700; letter-spacing: -0.01em; margin-bottom: 10px; }
+    .hero-title em { font-style: normal; color: var(--green-light); }
+    .hero-sub { color: var(--text-dim); font-size: 13px; line-height: 1.6; margin-bottom: 22px; }
+
+    /* ── reveal animation ── */
+    .reveal { animation: fadeUp .4s cubic-bezier(.2,.8,.2,1) both; }
+    .reveal.d1 { animation-delay: .04s; }
+    .reveal.d2 { animation-delay: .10s; }
+    .reveal.d3 { animation-delay: .16s; }
+    @keyframes fadeUp { from { opacity: 0; transform: translateY(6px); } }
+
+    /* ── helper ── */
+    .hide { display: none !important; }
+
+    @media (max-width: 640px) {
+      .header, .section, .strip, .pl-panel, .bottom-bar, .stats { padding-left: 16px; padding-right: 16px; }
+      .stats { gap: 6px; }
+      .stat { min-width: 72px; padding: 6px 10px; }
+      .hero-title { font-size: 26px; }
+    }
   </style>
 </head>
-<body class="bg-gray-950 text-gray-100 min-h-screen font-sans text-sm">
+<body>
+
+  <!-- Toast host -->
+  <div id="toast-host"></div>
 
   <!-- Header -->
-  <header class="bg-gray-900 border-b border-gray-800 px-6 py-3 flex items-center justify-between sticky top-0 z-20">
-    <span class="text-lg font-bold text-green-400">Music Fetcher</span>
-    <div class="flex items-center gap-3">
-      <span id="user-name" class="text-gray-400 text-xs hidden"></span>
-      <button onclick="logout()" id="logout-btn" class="hidden text-gray-600 hover:text-gray-300 text-xs underline">Logout</button>
-      <button onclick="login()" id="login-btn" class="bg-green-500 hover:bg-green-400 text-black font-bold px-4 py-2 rounded-full text-xs transition">
-        Connect Spotify
-      </button>
+  <header class="header reveal">
+    <div class="brand"><span class="dot"></span>Music Fetcher</div>
+    <div style="display:flex; align-items:center; gap:12px;">
+      <span class="auth-pill" id="auth-indicator">
+        <span class="auth-led" id="auth-led"></span>
+        <span id="auth-state-label">Not connected</span>
+      </span>
+      <span id="user-name" class="hide" style="font-size:12px; color:var(--text-dim);"></span>
+      <button onclick="logout()" id="logout-btn" class="btn btn-ghost hide">Logout</button>
+      <button onclick="login()" id="login-btn" class="btn btn-primary">Connect Spotify</button>
     </div>
   </header>
 
   <!-- Not authenticated -->
-  <div id="not-auth-view" class="hidden flex flex-col items-center justify-center" style="min-height:70vh">
-    <div class="text-center space-y-3">
-      <div class="text-5xl">🎵</div>
-      <h2 class="text-xl font-bold">Connect your Spotify account</h2>
-      <p class="text-gray-500 text-xs">to match your local library and add songs to playlists</p>
-      <button onclick="login()" class="mt-2 bg-green-500 hover:bg-green-400 text-black font-bold px-8 py-3 rounded-full transition">
-        Connect with Spotify
-      </button>
+  <section id="not-auth-view" class="hide">
+    <div class="hero">
+      <div class="hero-stage">
+        <div class="hero-icon"></div>
+        <div class="hero-title">Local library, <em>matched on Spotify</em></div>
+        <p class="hero-sub">Point Music Fetcher at your folders, find every track on Spotify, and add the matches to a playlist.</p>
+        <button onclick="login()" class="btn btn-primary" style="padding:12px 24px; font-size:13px;">Connect with Spotify</button>
+      </div>
     </div>
-  </div>
+  </section>
 
-  <!-- Main view -->
-  <div id="main-view" class="hidden">
+  <!-- Main -->
+  <section id="main-view" class="hide">
 
-    <!-- Source panel -->
-    <div class="bg-gray-900 border-b border-gray-800 px-4 py-3 space-y-3">
+    <!-- Sources -->
+    <div class="section reveal d1">
+      <div class="section-label">Sources</div>
+      <div style="display:flex; flex-direction:column; gap:14px;">
+        <div style="display:flex; align-items:flex-start; gap:12px; flex-wrap:wrap;">
+          <span style="font-size:11px; color:var(--text-faint); padding-top:8px; flex-shrink:0; font-weight:600;">Folders</span>
+          <div id="folder-chips" style="display:flex; flex-wrap:wrap; gap:6px; flex:1; min-width:200px;"></div>
+          <div style="display:flex; gap:6px; align-items:center;">
+            <input id="folder-path-input" type="text" placeholder="Paste a folder path…"
+              class="input" style="width:18rem;"
+              onkeydown="if(event.key==='Enter') addFolder()" />
+            <button onclick="pickFolder()" class="btn btn-ghost">Browse…</button>
+            <button onclick="addFolder()" class="btn btn-success">Add</button>
+          </div>
+        </div>
 
-      <!-- Folder paths -->
-      <div class="flex items-start gap-2 flex-wrap">
-        <span class="text-gray-500 text-xs pt-1.5 shrink-0">Folders:</span>
-        <div id="folder-chips" class="flex flex-wrap gap-2 flex-1"></div>
-        <div class="flex gap-2 items-center">
-          <input id="folder-path-input" type="text" placeholder="Browse or paste a folder path…"
-            class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-xs placeholder-gray-600 focus:outline-none focus:border-green-500 w-64"
-            onkeydown="if(event.key==='Enter') addFolder()" />
-          <button onclick="pickFolder()"
-            class="border border-gray-600 hover:border-green-500 px-3 py-1.5 rounded-lg text-xs transition">
-            Browse…
-          </button>
-          <button onclick="addFolder()"
-            class="bg-gray-700 hover:bg-gray-600 px-3 py-1.5 rounded-lg text-xs transition">
-            Add
-          </button>
+        <div id="drop-zone" class="drop-zone"
+          ondragover="event.preventDefault(); this.classList.add('drag-over')"
+          ondragleave="this.classList.remove('drag-over')"
+          ondrop="handleDrop(event)">
+          <input id="file-input" type="file" multiple accept=".mp3,.flac,.m4a,.aac,.ogg" class="hide" onchange="handleFileInput(this)" />
+          <input id="folder-input" type="file" webkitdirectory multiple class="hide" onchange="handleFolderInput(this)" />
+          <p class="hint"><b>Drag &amp; drop</b> audio files or folders here, or</p>
+          <div style="display:flex; gap:8px; justify-content:center; margin-top:12px;">
+            <button onclick="document.getElementById('file-input').click()" class="btn btn-ghost">Upload Files</button>
+            <button onclick="document.getElementById('folder-input').click()" class="btn btn-ghost">Upload Folder</button>
+          </div>
+          <div id="upload-status" class="hide" style="margin-top:12px; font-size:11px; color:#4ade80;"></div>
         </div>
       </div>
-
-      <!-- Upload drop zone -->
-      <div id="drop-zone"
-        class="border-2 border-dashed border-gray-700 rounded-xl px-4 py-5 text-center hover:border-gray-500 transition"
-        ondragover="event.preventDefault(); this.classList.add('drag-over')"
-        ondragleave="this.classList.remove('drag-over')"
-        ondrop="handleDrop(event)">
-        <input id="file-input" type="file" multiple accept=".mp3,.flac,.m4a,.aac,.ogg" class="hidden" onchange="handleFileInput(this)" />
-        <input id="folder-input" type="file" webkitdirectory multiple class="hidden" onchange="handleFolderInput(this)" />
-        <p class="text-gray-500 text-xs mb-3">
-          Drag &amp; drop audio files or folders here, or:
-        </p>
-        <div class="flex gap-2 justify-center">
-          <button onclick="document.getElementById('file-input').click()"
-            class="border border-gray-600 hover:border-gray-400 px-4 py-2 rounded-lg text-xs transition">
-            Upload Files
-          </button>
-          <button onclick="document.getElementById('folder-input').click()"
-            class="border border-gray-600 hover:border-green-500 px-4 py-2 rounded-lg text-xs transition">
-            Upload Folder
-          </button>
-        </div>
-        <div id="upload-status" class="mt-3 text-xs text-green-400 hidden"></div>
-      </div>
-
     </div>
 
     <!-- Toolbar -->
-    <div class="bg-gray-900 border-b border-gray-800 px-4 py-2 flex items-center gap-2 flex-wrap">
-      <button id="search-btn" onclick="startSearch()"
-        class="bg-green-500 hover:bg-green-400 disabled:bg-gray-700 disabled:text-gray-500 disabled:cursor-not-allowed text-black font-bold px-4 py-2 rounded-full text-xs transition">
-        Find on Spotify
-      </button>
-      <button onclick="selectAllMatched()"
-        class="border border-gray-700 hover:border-gray-400 px-3 py-2 rounded-full text-xs transition">
-        Select All Matched
-      </button>
-      <button onclick="clearSelection()"
-        class="border border-gray-700 hover:border-gray-400 px-3 py-2 rounded-full text-xs transition">
-        Clear Selection
-      </button>
-      <input id="filter-input" oninput="filterChanged()" type="text" placeholder="Filter artist / title…"
-        class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-xs placeholder-gray-600 focus:outline-none focus:border-green-500 w-52" />
-      <select id="status-filter" onchange="filterChanged()"
-        class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-green-500">
-        <option value="all">All songs</option>
-        <option value="matched">Matched</option>
-        <option value="notfound">Not Found</option>
-        <option value="selected">Selected</option>
-      </select>
+    <div class="section reveal d2" style="padding-top:12px; padding-bottom:12px;">
+      <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+        <button id="search-btn" onclick="startSearch()" class="btn btn-primary">Find on Spotify</button>
+        <button onclick="selectAllMatched()" class="btn btn-ghost">Select Matched</button>
+        <button onclick="clearSelection()" class="btn btn-ghost">Clear</button>
+        <input id="filter-input" oninput="filterChanged()" type="text" placeholder="Filter artist / title…" class="input" style="width:14rem;" />
+        <select id="status-filter" onchange="filterChanged()" class="input">
+          <option value="all">All songs</option>
+          <option value="matched">Matched</option>
+          <option value="notfound">Not Found</option>
+          <option value="skipped">Skipped</option>
+          <option value="selected">Selected</option>
+        </select>
+      </div>
     </div>
 
     <!-- Progress -->
-    <div id="progress-bar-wrap" class="hidden bg-gray-900 border-b border-gray-800 px-4 py-3 space-y-2">
-      <div class="flex items-center gap-2">
-        <button onclick="stopSearch()" id="stop-btn"
-          class="bg-red-600 hover:bg-red-500 text-white font-bold px-3 py-1.5 rounded-full text-xs transition">
-          Stop
-        </button>
-        <button onclick="skipTrack()" id="skip-btn"
-          class="border border-gray-600 hover:border-yellow-500 hover:text-yellow-400 px-3 py-1.5 rounded-full text-xs transition">
-          Skip Track
-        </button>
-        <button onclick="continueSearch()" id="continue-btn"
-          class="hidden bg-green-600 hover:bg-green-500 text-white font-bold px-3 py-1.5 rounded-full text-xs transition">
-          Continue
-        </button>
-        <span class="ml-auto text-xs text-gray-500" id="progress-count"></span>
+    <div id="progress-bar-wrap" class="section hide" style="padding-top:14px; padding-bottom:14px;">
+      <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:10px;">
+        <button onclick="stopSearch()" id="stop-btn" class="btn btn-danger">Stop</button>
+        <button onclick="skipTrack()" id="skip-btn" class="btn btn-warn">Skip Track</button>
+        <button onclick="continueSearch()" id="continue-btn" class="btn btn-success hide">Continue</button>
+        <span style="flex:1"></span>
+        <span id="progress-count" style="font-size:11px; color:var(--text-dim); font-variant-numeric:tabular-nums;">0 / 0</span>
       </div>
-      <div id="now-scanning" class="text-xs text-gray-400 truncate">
-        <span class="text-gray-600">Now scanning:</span> <span id="scanning-track">—</span>
+      <div class="progress-track">
+        <div id="progress-fill" class="progress-fill" style="width:0%"></div>
       </div>
-      <div class="w-full bg-gray-700 rounded-full h-1.5">
-        <div id="progress-fill" class="bg-green-500 h-1.5 rounded-full transition-all duration-150" style="width:0%"></div>
+      <div style="margin-top:10px; font-size:11px; display:flex; gap:8px; align-items:center; min-height:18px;">
+        <span style="color:var(--text-faint); font-weight:600; letter-spacing:.04em;">Now scanning</span>
+        <span id="scanning-track" style="color:var(--text);">—</span>
       </div>
     </div>
 
     <!-- Stats -->
-    <div class="bg-gray-900 border-b border-gray-800 px-4 py-2 flex gap-5 text-xs text-gray-400">
-      <span>Total: <b id="stat-total" class="text-gray-200">0</b></span>
-      <span>Matched: <b id="stat-matched" class="text-green-400">0</b></span>
-      <span>Not Found: <b id="stat-notfound" class="text-red-400">0</b></span>
-      <span>Selected: <b id="stat-selected" class="text-blue-400">0</b></span>
+    <div class="stats reveal d3">
+      <div class="stat"><span class="stat-label">Total</span><span class="stat-value" id="stat-total">0</span></div>
+      <div class="stat stat--matched"><span class="stat-label">Matched</span><span class="stat-value" id="stat-matched">0</span></div>
+      <div class="stat stat--notfound"><span class="stat-label">Not Found</span><span class="stat-value" id="stat-notfound">0</span></div>
+      <div class="stat stat--skipped"><span class="stat-label">Skipped</span><span class="stat-value" id="stat-skipped">0</span></div>
+      <div class="stat stat--selected"><span class="stat-label">Selected</span><span class="stat-value" id="stat-selected">0</span></div>
     </div>
 
     <!-- Table -->
-    <div class="overflow-x-auto">
-      <table class="w-full text-xs">
-        <thead class="bg-gray-900 border-b border-gray-800 text-gray-400">
+    <div style="overflow-x:auto;">
+      <table class="data-table">
+        <thead>
           <tr>
-            <th class="px-3 py-2 w-8 text-center">
-              <input type="checkbox" id="header-cb" onchange="toggleSelectAll(this)" />
-            </th>
-            <th class="px-3 py-2 text-left w-8">#</th>
-            <th class="px-3 py-2 text-left">File</th>
-            <th class="px-3 py-2 text-left">Artist</th>
-            <th class="px-3 py-2 text-left">Title</th>
-            <th class="px-3 py-2 text-left">Spotify Match</th>
-            <th class="px-3 py-2 text-left w-20">Status</th>
+            <th style="width:38px; text-align:center;"><input type="checkbox" id="header-cb" onchange="toggleSelectAll(this)" /></th>
+            <th style="width:48px;">#</th>
+            <th>File</th>
+            <th>Artist</th>
+            <th>Title</th>
+            <th>Spotify Match</th>
+            <th style="width:100px;">Status</th>
           </tr>
         </thead>
         <tbody id="tbody">
-          <tr><td colspan="7" class="px-4 py-12 text-center text-gray-600">
-            Add folders or upload files above, then click "Find on Spotify".
+          <tr><td colspan="7" style="padding:48px 16px; text-align:center; color:var(--text-faint); font-size:12px;">
+            Add folders or upload files above, then click <b style="color:var(--green-light)">Find on Spotify</b>.
           </td></tr>
         </tbody>
       </table>
     </div>
 
     <!-- Pagination -->
-    <div class="bg-gray-900 border-t border-gray-800 px-4 py-2 flex items-center justify-between text-xs text-gray-400">
-      <span id="page-info"></span>
-      <div class="flex gap-2">
-        <button onclick="prevPage()" id="prev-btn" disabled
-          class="border border-gray-700 hover:border-gray-500 disabled:opacity-30 disabled:cursor-not-allowed px-3 py-1 rounded transition">
-          ← Prev
-        </button>
-        <button onclick="nextPage()" id="next-btn" disabled
-          class="border border-gray-700 hover:border-gray-500 disabled:opacity-30 disabled:cursor-not-allowed px-3 py-1 rounded transition">
-          Next →
-        </button>
+    <div class="strip">
+      <span id="page-info" style="font-variant-numeric:tabular-nums;"></span>
+      <div style="display:flex; gap:6px;">
+        <button onclick="prevPage()" id="prev-btn" disabled class="btn btn-ghost">← Prev</button>
+        <button onclick="nextPage()" id="next-btn" disabled class="btn btn-ghost">Next →</button>
       </div>
     </div>
 
-    <!-- Selected playlist contents -->
-    <div id="playlist-panel" class="hidden bg-gray-900 border-t border-gray-800 px-4 py-3">
-      <div class="flex items-center gap-2 mb-2">
-        <span class="text-xs text-gray-500">Playlist:</span>
-        <span id="pl-panel-name" class="text-xs font-bold text-gray-200 truncate"></span>
-        <span id="pl-panel-count" class="text-xs text-gray-600 ml-auto"></span>
+    <!-- Playlist contents -->
+    <div id="playlist-panel" class="pl-panel hide">
+      <div style="display:flex; align-items:center; gap:10px; margin-bottom:10px;">
+        <span class="section-label" style="margin-bottom:0;">Playlist</span>
+        <span id="pl-panel-name" style="font-size:13px; font-weight:700; color:var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1;"></span>
+        <span id="pl-panel-count" style="font-size:11px; color:var(--text-faint); font-variant-numeric:tabular-nums;"></span>
       </div>
-      <div id="pl-panel-tracks" class="text-xs space-y-1 max-h-64 overflow-y-auto"></div>
+      <div id="pl-panel-tracks" class="pl-tracks-scroll" style="display:flex; flex-direction:column; gap:2px;"></div>
     </div>
 
-  </div><!-- /main-view -->
+  </section>
 
   <!-- Bottom bar -->
-  <div id="bottom-bar" class="hidden fixed bottom-0 left-0 right-0 bg-gray-900 border-t border-gray-700 px-4 py-3 flex items-center gap-3 flex-wrap z-20">
-    <span class="text-xs text-gray-400"><b id="bottom-count" class="text-blue-400">0</b> selected</span>
-    <div class="flex-1"></div>
-    <select id="playlist-select" onchange="loadSelectedPlaylistTracks()"
-      class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-green-500 min-w-[180px]">
+  <div id="bottom-bar" class="bottom-bar hide">
+    <span style="font-size:11px; color:var(--text-dim); font-weight:600;">
+      <b id="bottom-count" style="color:var(--blue); font-size:14px; font-variant-numeric:tabular-nums;">0</b> selected
+    </span>
+    <div style="flex:1"></div>
+    <select id="playlist-select" onchange="loadSelectedPlaylistTracks()" class="input" style="min-width:200px;">
       <option value="">Select a playlist…</option>
     </select>
-    <button onclick="openModal()"
-      class="border border-gray-600 hover:border-green-500 px-3 py-2 rounded-lg text-xs transition">
-      + New
-    </button>
-    <button onclick="addToPlaylist()" id="add-btn"
-      class="bg-green-500 hover:bg-green-400 disabled:bg-gray-700 disabled:text-gray-500 disabled:cursor-not-allowed text-black font-bold px-5 py-2 rounded-full text-xs transition">
-      Add to Playlist
-    </button>
+    <button onclick="openModal()" class="btn btn-ghost">+ New</button>
+    <button onclick="addToPlaylist()" id="add-btn" class="btn btn-primary">Add to Playlist</button>
   </div>
 
-  <!-- Create playlist modal -->
-  <div id="modal" class="hidden fixed inset-0 bg-black/70 flex items-center justify-center z-30">
-    <div class="bg-gray-900 rounded-xl p-6 w-80 border border-gray-700 shadow-xl">
-      <h3 class="font-bold mb-3">Create New Playlist</h3>
+  <!-- Modal -->
+  <div id="modal" class="modal-overlay hide">
+    <div class="modal-card">
+      <div style="font-size:13px; font-weight:700; color:var(--text); margin-bottom:14px;">Create New Playlist</div>
       <input id="new-pl-name" type="text" placeholder="Playlist name…"
-        class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-xs mb-4 focus:outline-none focus:border-green-500"
+        class="input" style="width:100%; margin-bottom:18px;"
         onkeydown="if(event.key==='Enter') createPlaylist(); if(event.key==='Escape') closeModal();" />
-      <div class="flex gap-2 justify-end">
-        <button onclick="closeModal()" class="border border-gray-600 hover:border-gray-400 px-4 py-2 rounded-lg text-xs transition">Cancel</button>
-        <button onclick="createPlaylist()" class="bg-green-500 hover:bg-green-400 text-black font-bold px-4 py-2 rounded-lg text-xs transition">Create</button>
+      <div style="display:flex; gap:8px; justify-content:flex-end;">
+        <button onclick="closeModal()" class="btn btn-ghost">Cancel</button>
+        <button onclick="createPlaylist()" class="btn btn-primary">Create</button>
       </div>
     </div>
   </div>
@@ -233,7 +690,7 @@
   const PAGE_SIZE = 100;
   const state = {
     songs: [],
-    stats: { matched: 0, notFound: 0, selected: 0 },
+    stats: { matched: 0, notFound: 0, skipped: 0, selected: 0 },
     searching: false,
     stopped: false,
     resumeIndex: 0,
@@ -243,7 +700,21 @@
     _es: null,
   };
 
-  // rAF throttle: coalesces rapid SSE progress updates into one DOM write per frame
+  // ── Toast ──────────────────────────────────────────────────────────────────
+  function toast(message, type = 'ok', duration = 4000) {
+    const host = document.getElementById('toast-host');
+    if (!host) return;
+    const el = document.createElement('div');
+    el.className = 'toast' + (type === 'err' ? ' toast--err' : type === 'warn' ? ' toast--warn' : '');
+    el.textContent = message;
+    host.appendChild(el);
+    setTimeout(() => {
+      el.classList.add('hide');
+      setTimeout(() => el.remove(), 180);
+    }, duration);
+  }
+
+  // ── Progress (rAF-coalesced) ───────────────────────────────────────────────
   let _rafId = null, _rafData = null;
   function scheduleProgressUpdate(d) {
     _rafData = d;
@@ -274,29 +745,34 @@
   }
 
   function showNotAuth() {
-    document.getElementById('not-auth-view').classList.remove('hidden');
-    document.getElementById('main-view').classList.add('hidden');
-    document.getElementById('bottom-bar').classList.add('hidden');
-    document.getElementById('login-btn').classList.remove('hidden');
-    document.getElementById('user-name').classList.add('hidden');
-    document.getElementById('logout-btn').classList.add('hidden');
+    document.getElementById('not-auth-view').classList.remove('hide');
+    document.getElementById('main-view').classList.add('hide');
+    document.getElementById('bottom-bar').classList.add('hide');
+    document.getElementById('login-btn').classList.remove('hide');
+    document.getElementById('user-name').classList.add('hide');
+    document.getElementById('logout-btn').classList.add('hide');
+    document.getElementById('auth-led').className = 'auth-led';
+    document.getElementById('auth-state-label').textContent = 'Not connected';
   }
 
   function showMain(name) {
-    document.getElementById('not-auth-view').classList.add('hidden');
-    document.getElementById('main-view').classList.remove('hidden');
-    document.getElementById('bottom-bar').classList.remove('hidden');
-    document.getElementById('login-btn').classList.add('hidden');
-    document.getElementById('user-name').textContent = name;
-    document.getElementById('user-name').classList.remove('hidden');
-    document.getElementById('logout-btn').classList.remove('hidden');
+    document.getElementById('not-auth-view').classList.add('hide');
+    document.getElementById('main-view').classList.remove('hide');
+    document.getElementById('bottom-bar').classList.remove('hide');
+    document.getElementById('login-btn').classList.add('hide');
+    const userEl = document.getElementById('user-name');
+    userEl.textContent = name;
+    userEl.classList.remove('hide');
+    document.getElementById('logout-btn').classList.remove('hide');
+    document.getElementById('auth-led').className = 'auth-led on';
+    document.getElementById('auth-state-label').textContent = 'Connected';
   }
 
   function login()  { window.location.href = '/login'; }
   async function logout() {
     if (state._es) { try { state._es.close(); } catch {} state._es = null; }
     state.songs = [];
-    state.stats = { matched: 0, notFound: 0, selected: 0 };
+    state.stats = { matched: 0, notFound: 0, skipped: 0, selected: 0 };
     state.page = 0;
     state.searching = false;
     state.stopped = false;
@@ -305,7 +781,7 @@
     try { await fetch('/api/logout'); } catch (e) { console.error('Logout request failed:', e); }
   }
 
-  // ── Folder management ──────────────────────────────────────────────────────
+  // ── Folders ────────────────────────────────────────────────────────────────
 
   async function loadFolders() {
     const data = await fetch('/api/folders').then(r => r.json());
@@ -315,14 +791,14 @@
   function renderFolderChips(folders) {
     const container = document.getElementById('folder-chips');
     if (folders.length === 0) {
-      container.innerHTML = '<span class="text-gray-600 text-xs pt-1.5">No folders added yet.</span>';
+      container.innerHTML = '<span style="color:var(--text-faint); font-size:11px; padding-top:8px;">No folders added yet.</span>';
       return;
     }
     container.innerHTML = folders.map((f, i) => `
-      <span class="flex items-center gap-1 bg-gray-800 border border-gray-700 rounded-lg px-2 py-1 text-xs text-gray-300">
-        <span class="text-gray-500">📁</span>
-        <span class="truncate max-w-xs" title="${esc(f)}">${esc(f)}</span>
-        <button onclick="removeFolder(${i})" class="text-gray-600 hover:text-red-400 ml-1 transition">✕</button>
+      <span class="chip">
+        <span class="chip-glyph">▣</span>
+        <span class="chip-path" title="${esc(f)}">${esc(f)}</span>
+        <span class="chip-x" onclick="removeFolder(${i})" title="Remove">✕</span>
       </span>`).join('');
   }
 
@@ -341,8 +817,9 @@
       });
       input.value = '';
       renderFolderChips(data.folders);
+      toast(`Added folder: ${path}`);
     } catch(e) {
-      alert('Could not add folder: ' + e.message);
+      toast('Could not add folder: ' + e.message, 'err');
     }
   }
 
@@ -363,11 +840,11 @@
       document.getElementById('folder-path-input').value = path;
       addFolder();
     } catch(e) {
-      alert('Could not open folder picker: ' + e.message);
+      toast('Could not open folder picker: ' + e.message, 'err');
     }
   }
 
-  // ── File upload ────────────────────────────────────────────────────────────
+  // ── Upload ─────────────────────────────────────────────────────────────────
 
   function handleFileInput(input) {
     sendFiles([...input.files].map(f => ({ file: f, relativePath: f.name })));
@@ -425,12 +902,12 @@
     if (!audioItems.length) return;
     const statusEl = document.getElementById('upload-status');
     statusEl.textContent = `Uploading ${audioItems.length} file(s)…`;
-    statusEl.classList.remove('hidden');
+    statusEl.classList.remove('hide');
     const form = new FormData();
     for (const { file, relativePath } of audioItems) form.append('files', file, relativePath);
     try {
       const data = await fetch('/api/upload', { method: 'POST', body: form }).then(r => r.json());
-      statusEl.textContent = `✓ ${data.count} file(s) uploaded.${data.skipped.length ? ` ${data.skipped.length} skipped.` : ''}`;
+      statusEl.textContent = `✓ ${data.count} file(s) uploaded${data.skipped.length ? ` · ${data.skipped.length} skipped` : ''}`;
     } catch(e) {
       statusEl.textContent = 'Upload failed: ' + e.message;
     }
@@ -451,8 +928,8 @@
     } catch(e) { console.error(e); }
   }
 
-  function openModal()  { document.getElementById('modal').classList.remove('hidden'); document.getElementById('new-pl-name').focus(); }
-  function closeModal() { document.getElementById('modal').classList.add('hidden'); }
+  function openModal()  { document.getElementById('modal').classList.remove('hide'); document.getElementById('new-pl-name').focus(); }
+  function closeModal() { document.getElementById('modal').classList.add('hide'); }
 
   async function createPlaylist() {
     const name = document.getElementById('new-pl-name').value.trim();
@@ -474,8 +951,9 @@
       o.value = data.id; o.textContent = data.name;
       sel.appendChild(o); sel.value = data.id;
       loadSelectedPlaylistTracks();
+      toast(`Created playlist: ${data.name}`);
     } catch(e) {
-      alert('Could not create playlist: ' + e.message);
+      toast('Could not create playlist: ' + e.message, 'err');
     }
   }
 
@@ -483,12 +961,12 @@
     const sel = document.getElementById('playlist-select');
     const panel = document.getElementById('playlist-panel');
     const id = sel.value;
-    if (!id) { panel.classList.add('hidden'); return; }
+    if (!id) { panel.classList.add('hide'); return; }
     const name = sel.options[sel.selectedIndex].textContent;
     document.getElementById('pl-panel-name').textContent = name;
     document.getElementById('pl-panel-count').textContent = 'loading…';
     document.getElementById('pl-panel-tracks').innerHTML = '';
-    panel.classList.remove('hidden');
+    panel.classList.remove('hide');
     try {
       const data = await fetch(`/api/playlist/${id}/tracks`).then(r => {
         if (!r.ok) return r.json().then(e => { throw new Error(e.detail || r.statusText); });
@@ -497,19 +975,19 @@
       const tracks = data.tracks || [];
       document.getElementById('pl-panel-count').textContent = `${tracks.length} track${tracks.length === 1 ? '' : 's'}`;
       document.getElementById('pl-panel-tracks').innerHTML = tracks.length
-        ? tracks.map(t => `<div class="truncate text-gray-300">${esc(t.artist)} — ${esc(t.name)}</div>`).join('')
-        : '<div class="text-gray-600">Empty playlist</div>';
+        ? tracks.map(t => `<div class="pl-track">${esc(t.artist)} — ${esc(t.name)}</div>`).join('')
+        : '<div style="color:var(--text-faint); font-size:12px; padding:6px 0;">Empty playlist</div>';
     } catch(e) {
       document.getElementById('pl-panel-count').textContent = 'failed';
-      document.getElementById('pl-panel-tracks').innerHTML = `<div class="text-red-400">Could not load tracks: ${esc(e.message)}</div>`;
+      document.getElementById('pl-panel-tracks').innerHTML = `<div style="color:#f87171; font-size:12px;">Could not load tracks: ${esc(e.message)}</div>`;
     }
   }
 
   async function addToPlaylist() {
     const pid = document.getElementById('playlist-select').value;
-    if (!pid) { alert('Please select a playlist first.'); return; }
+    if (!pid) { toast('Please select a playlist first.', 'warn'); return; }
     const uris = state.songs.filter(s => s.selected && s.match).map(s => s.match.uri);
-    if (!uris.length) { alert('No matched tracks selected.'); return; }
+    if (!uris.length) { toast('No matched tracks selected.', 'warn'); return; }
     const btn = document.getElementById('add-btn');
     btn.disabled = true; btn.textContent = 'Adding…';
     try {
@@ -517,11 +995,11 @@
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ playlist_id: pid, track_uris: uris })
       }).then(r => r.json());
-      let msg = `Added ${data.added} track${data.added === 1 ? '' : 's'} to playlist.`;
+      let msg = `Added ${data.added} track${data.added === 1 ? '' : 's'}.`;
       if (data.duplicates_skipped) msg += ` Skipped ${data.duplicates_skipped} duplicate${data.duplicates_skipped === 1 ? '' : 's'}.`;
-      alert(msg);
+      toast(msg);
       loadSelectedPlaylistTracks();
-    } catch(e) { alert('Failed: ' + e.message); }
+    } catch(e) { toast('Failed: ' + e.message, 'err'); }
     btn.disabled = false; btn.textContent = 'Add to Playlist';
   }
 
@@ -532,17 +1010,19 @@
     if (!resume) {
       state.songs = [];
       state.page = 0;
-      state.stats = { matched: 0, notFound: 0, selected: 0 };
+      state.stats = { matched: 0, notFound: 0, skipped: 0, selected: 0 };
     }
     state.searching = true;
     state.stopped = false;
 
     document.getElementById('search-btn').disabled = true;
-    document.getElementById('progress-bar-wrap').classList.remove('hidden');
-    document.getElementById('stop-btn').classList.remove('hidden');
-    document.getElementById('skip-btn').classList.remove('hidden');
-    document.getElementById('continue-btn').classList.add('hidden');
-    document.getElementById('scanning-track').textContent = '—';
+    document.getElementById('progress-bar-wrap').classList.remove('hide');
+    document.getElementById('stop-btn').classList.remove('hide');
+    document.getElementById('skip-btn').classList.remove('hide');
+    document.getElementById('continue-btn').classList.add('hide');
+    const scanEl = document.getElementById('scanning-track');
+    scanEl.classList.add('pulse-dot');
+    scanEl.textContent = '—';
 
     const startIdx = resume ? state.resumeIndex : 0;
     const es = new EventSource(`/api/search-stream?start_index=${startIdx}`);
@@ -557,15 +1037,16 @@
         state.stopped = true;
         state.resumeIndex = d.index;
         document.getElementById('search-btn').disabled = false;
-        document.getElementById('stop-btn').classList.add('hidden');
-        document.getElementById('skip-btn').classList.add('hidden');
-        document.getElementById('continue-btn').classList.remove('hidden');
+        document.getElementById('stop-btn').classList.add('hide');
+        document.getElementById('skip-btn').classList.add('hide');
+        document.getElementById('continue-btn').classList.remove('hide');
+        scanEl.classList.remove('pulse-dot');
         if (d.rate_limited) {
           const mins = Math.max(1, Math.ceil(d.retry_after / 60));
-          document.getElementById('scanning-track').textContent =
-            `⚠ Spotify rate limit reached at ${d.index} / ${d.total}. Try again in ~${mins} min.`;
+          scanEl.textContent = `Rate limit reached at ${d.index} / ${d.total}. Try again in ~${mins} min.`;
+          toast(`Spotify rate-limited the app. Try again in ~${mins} min.`, 'warn', 6000);
         } else {
-          document.getElementById('scanning-track').textContent = `Paused at ${d.index} / ${d.total}`;
+          scanEl.textContent = `Paused at ${d.index} / ${d.total}`;
         }
         scheduleRender();
         return;
@@ -577,13 +1058,15 @@
         state.stopped = false;
         state.resumeIndex = 0;
         document.getElementById('search-btn').disabled = false;
-        document.getElementById('progress-bar-wrap').classList.add('hidden');
+        document.getElementById('progress-bar-wrap').classList.add('hide');
+        scanEl.classList.remove('pulse-dot');
         renderTable();
         return;
       }
 
-      state.songs.push({ idx: state.songs.length, song: d.song, match: d.match, selected: false });
+      state.songs.push({ idx: state.songs.length, song: d.song, match: d.match, selected: false, skipped: !!d.skipped });
       if (d.match) state.stats.matched++;
+      else if (d.skipped) state.stats.skipped++;
       else if (d.match === null) state.stats.notFound++;
       state.resumeIndex = d.index + 1;
 
@@ -595,7 +1078,8 @@
       es.close();
       state.searching = false;
       document.getElementById('search-btn').disabled = false;
-      if (!state.stopped) document.getElementById('progress-bar-wrap').classList.add('hidden');
+      scanEl.classList.remove('pulse-dot');
+      if (!state.stopped) document.getElementById('progress-bar-wrap').classList.add('hide');
       scheduleRender();
     };
   }
@@ -614,10 +1098,11 @@
   function getFiltered() {
     const { text, status } = state.filter;
     return state.songs.filter(item => {
-      const { song, match, selected } = item;
-      if (status === 'matched'  && !match)        return false;
-      if (status === 'notfound' && match !== null) return false;
-      if (status === 'selected' && !selected)      return false;
+      const { song, match, selected, skipped } = item;
+      if (status === 'matched'  && !match)                      return false;
+      if (status === 'notfound' && (match !== null || skipped)) return false;
+      if (status === 'skipped'  && !skipped)                    return false;
+      if (status === 'selected' && !selected)                   return false;
       if (text) {
         const q = text.toLowerCase();
         return song.artist.toLowerCase().includes(q) ||
@@ -673,7 +1158,7 @@
     const rowEl = document.querySelector(`tr[data-idx="${globalIdx}"]`);
     if (rowEl) {
       rowEl.querySelector('input[type=checkbox]').checked = item.selected;
-      rowEl.classList.toggle('bg-gray-900/60', item.selected);
+      rowEl.classList.toggle('is-selected', item.selected);
     }
     updateStats();
   }
@@ -692,34 +1177,36 @@
     const tbody = document.getElementById('tbody');
 
     if (page.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="7" class="px-4 py-12 text-center text-gray-600">${
+      tbody.innerHTML = `<tr><td colspan="7" style="padding:48px 16px; text-align:center; color:var(--text-faint); font-size:12px;">${
         state.songs.length === 0
-          ? 'Add folders or upload files above, then click "Find on Spotify".'
+          ? 'Add folders or upload files above, then click <b style="color:var(--green-light)">Find on Spotify</b>.'
           : 'No songs match the current filter.'
       }</td></tr>`;
     } else {
       tbody.innerHTML = page.map((item, i) => {
         const globalIdx = item.idx;
-        const { song, match, selected } = item;
+        const { song, match, selected, skipped } = item;
         const statusHtml = match
-          ? '<span class="text-green-400">Matched</span>'
-          : match === null
-            ? '<span class="text-red-400">Not Found</span>'
-            : '<span class="text-gray-600">—</span>';
+          ? '<span class="badge badge--matched">Matched</span>'
+          : skipped
+            ? '<span class="badge badge--skipped">Skipped</span>'
+            : match === null
+              ? '<span class="badge badge--notfound">Not Found</span>'
+              : '<span class="badge badge--idle">—</span>';
         const matchHtml = match
-          ? `<div class="truncate-cell text-green-300">${esc(match.artist)} — ${esc(match.name)}</div>
-             <div class="truncate-cell text-gray-600">${esc(match.album)}</div>`
-          : match === null ? '<span class="text-gray-700">—</span>' : '';
-        return `<tr data-idx="${globalIdx}" class="border-b border-gray-800/60 hover:bg-gray-900/40 ${selected ? 'bg-gray-900/60' : ''}">
-          <td class="px-3 py-2 text-center">
+          ? `<div class="truncate-cell" style="color:#86efac">${esc(match.artist)} — ${esc(match.name)}</div>
+             <div class="truncate-cell" style="color:var(--text-faint); font-size:11px;">${esc(match.album)}</div>`
+          : '<span style="color:var(--text-faint)">—</span>';
+        return `<tr data-idx="${globalIdx}" class="${selected ? 'is-selected' : ''}">
+          <td style="text-align:center;">
             <input type="checkbox" ${selected ? 'checked' : ''} ${!match ? 'disabled' : ''} onchange="toggleRow(${globalIdx})" />
           </td>
-          <td class="px-3 py-2 text-gray-600">${start + i + 1}</td>
-          <td class="px-3 py-2 text-gray-500 truncate-cell" title="${esc(song.filename)}">${esc(song.filename)}</td>
-          <td class="px-3 py-2 truncate-cell" title="${esc(song.artist)}">${esc(song.artist) || '<span class="text-gray-700">Unknown</span>'}</td>
-          <td class="px-3 py-2 truncate-cell" title="${esc(song.title)}">${esc(song.title) || '<span class="text-gray-700">Unknown</span>'}</td>
-          <td class="px-3 py-2">${matchHtml}</td>
-          <td class="px-3 py-2">${statusHtml}</td>
+          <td class="row-num">${start + i + 1}</td>
+          <td class="truncate-cell" style="color:var(--text-dim);" title="${esc(song.filename)}">${esc(song.filename)}</td>
+          <td class="truncate-cell" title="${esc(song.artist)}">${esc(song.artist) || '<span style="color:var(--text-faint)">Unknown</span>'}</td>
+          <td class="truncate-cell" title="${esc(song.title)}">${esc(song.title) || '<span style="color:var(--text-faint)">Unknown</span>'}</td>
+          <td>${matchHtml}</td>
+          <td>${statusHtml}</td>
         </tr>`;
       }).join('');
     }
@@ -734,10 +1221,11 @@
   }
 
   function updateStats() {
-    const { matched, notFound, selected } = state.stats;
+    const { matched, notFound, skipped, selected } = state.stats;
     document.getElementById('stat-total').textContent    = state.songs.length;
     document.getElementById('stat-matched').textContent  = matched;
     document.getElementById('stat-notfound').textContent = notFound;
+    document.getElementById('stat-skipped').textContent  = skipped;
     document.getElementById('stat-selected').textContent = selected;
     document.getElementById('bottom-count').textContent  = selected;
   }
