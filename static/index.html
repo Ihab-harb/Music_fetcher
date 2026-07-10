@@ -661,7 +661,100 @@
       </div>
     </div>
     </div>
-    <div id="tab-anghami" class="hide"></div>
+    <div id="tab-anghami" class="hide">
+
+      <!-- Anghami source -->
+      <div class="section">
+        <div class="section-label">Anghami Playlist</div>
+        <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
+          <input id="ang-url-input" type="text" placeholder="https://play.anghami.com/playlist/…"
+            class="input" style="flex:1; min-width:16rem;"
+            onkeydown="if(event.key==='Enter') fetchAnghamiPlaylist()" />
+          <button id="ang-fetch-btn" onclick="fetchAnghamiPlaylist()" class="btn btn-success">Fetch Playlist</button>
+        </div>
+        <div id="ang-fetch-error" class="hide" style="margin-top:10px; font-size:12px; color:#f87171;"></div>
+        <div id="ang-meta" class="hide" style="margin-top:10px; font-size:12px; color:var(--text-dim);">
+          <b id="ang-meta-name" style="color:var(--text);"></b>
+          <span id="ang-meta-count" style="margin-left:8px; font-variant-numeric:tabular-nums;"></span>
+        </div>
+        <div id="ang-truncated-warning" class="hide" style="margin-top:6px; font-size:12px; color:#fbbf24;"></div>
+      </div>
+
+      <!-- Toolbar -->
+      <div class="section" style="padding-top:12px; padding-bottom:12px;">
+        <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+          <button id="ang-search-btn" onclick="views.anghami.startSearch()" class="btn btn-primary" disabled>Find on Spotify</button>
+          <button onclick="views.anghami.selectAllMatched()" class="btn btn-ghost">Select Matched</button>
+          <button onclick="views.anghami.clearSelection()" class="btn btn-ghost">Clear</button>
+          <input id="ang-filter-input" oninput="views.anghami.filterChanged()" type="text" placeholder="Filter artist / title…" class="input" style="width:14rem;" />
+          <select id="ang-status-filter" onchange="views.anghami.filterChanged()" class="input">
+            <option value="all">All songs</option>
+            <option value="matched">Matched</option>
+            <option value="notfound">Not Found</option>
+            <option value="skipped">Skipped</option>
+            <option value="selected">Selected</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Progress -->
+      <div id="ang-progress-bar-wrap" class="section hide" style="padding-top:14px; padding-bottom:14px;">
+        <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:10px;">
+          <button onclick="views.anghami.stopSearch()" id="ang-stop-btn" class="btn btn-danger">Stop</button>
+          <button onclick="views.anghami.skipTrack()" id="ang-skip-btn" class="btn btn-warn">Skip Track</button>
+          <button onclick="views.anghami.continueSearch()" id="ang-continue-btn" class="btn btn-success hide">Continue</button>
+          <span style="flex:1"></span>
+          <span id="ang-progress-count" style="font-size:11px; color:var(--text-dim); font-variant-numeric:tabular-nums;">0 / 0</span>
+        </div>
+        <div class="progress-track">
+          <div id="ang-progress-fill" class="progress-fill" style="width:0%"></div>
+        </div>
+        <div style="margin-top:10px; font-size:11px; display:flex; gap:8px; align-items:center; min-height:18px;">
+          <span style="color:var(--text-faint); font-weight:600; letter-spacing:.04em;">Now scanning</span>
+          <span id="ang-scanning-track" style="color:var(--text);">—</span>
+        </div>
+      </div>
+
+      <!-- Stats -->
+      <div class="stats">
+        <div class="stat"><span class="stat-label">Total</span><span class="stat-value" id="ang-stat-total">0</span></div>
+        <div class="stat stat--matched"><span class="stat-label">Matched</span><span class="stat-value" id="ang-stat-matched">0</span></div>
+        <div class="stat stat--notfound"><span class="stat-label">Not Found</span><span class="stat-value" id="ang-stat-notfound">0</span></div>
+        <div class="stat stat--skipped"><span class="stat-label">Skipped</span><span class="stat-value" id="ang-stat-skipped">0</span></div>
+        <div class="stat stat--selected"><span class="stat-label">Selected</span><span class="stat-value" id="ang-stat-selected">0</span></div>
+      </div>
+
+      <!-- Table -->
+      <div id="ang-table-wrap" style="overflow-x:auto;">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th style="width:38px; text-align:center;"><input type="checkbox" id="ang-header-cb" onchange="views.anghami.toggleSelectAll(this)" /></th>
+              <th style="width:48px;">#</th>
+              <th>Artist</th>
+              <th>Title</th>
+              <th>Spotify Match</th>
+              <th style="width:100px;">Status</th>
+            </tr>
+          </thead>
+          <tbody id="ang-tbody">
+            <tr><td colspan="6" style="padding:48px 16px; text-align:center; color:var(--text-faint); font-size:12px;">
+              Paste an Anghami playlist link above and click <b style="color:var(--green-light)">Fetch Playlist</b>.
+            </td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Pagination -->
+      <div class="strip">
+        <span id="ang-page-info" style="font-variant-numeric:tabular-nums;"></span>
+        <div style="display:flex; gap:6px;">
+          <button onclick="views.anghami.prevPage()" id="ang-prev-btn" disabled class="btn btn-ghost">← Prev</button>
+          <button onclick="views.anghami.nextPage()" id="ang-next-btn" disabled class="btn btn-ghost">Next →</button>
+        </div>
+      </div>
+
+    </div>
 
     <!-- Playlist contents -->
     <div id="playlist-panel" class="pl-panel hide">
@@ -763,6 +856,10 @@
     anghamiPlaylist = null;
     views.library.reset();
     if (views.anghami) views.anghami.reset();
+    document.getElementById('ang-url-input').value = '';
+    document.getElementById('ang-meta').classList.add('hide');
+    document.getElementById('ang-fetch-error').classList.add('hide');
+    document.getElementById('ang-truncated-warning').classList.add('hide');
     showNotAuth();
     try { await fetch('/api/logout'); } catch (e) { console.error('Logout request failed:', e); }
   }
@@ -914,7 +1011,14 @@
     } catch(e) { console.error(e); }
   }
 
-  function openModal()  { document.getElementById('modal').classList.remove('hide'); document.getElementById('new-pl-name').focus(); }
+  function openModal()  {
+    const nameInput = document.getElementById('new-pl-name');
+    if (activeTab === 'anghami' && anghamiPlaylist && !nameInput.value.trim()) {
+      nameInput.value = anghamiPlaylist.name;
+    }
+    document.getElementById('modal').classList.remove('hide');
+    nameInput.focus();
+  }
   function closeModal() { document.getElementById('modal').classList.add('hide'); }
 
   async function createPlaylist() {
@@ -1290,6 +1394,61 @@
     showFile: true,
     emptyHtml: 'Add folders or upload files above, then click <b style="color:var(--green-light)">Find on Spotify</b>.',
   });
+
+  views.anghami = createResultsView({
+    key: 'anghami',
+    prefix: 'ang-',
+    streamPath: '/api/anghami/search-stream',
+    showFile: false,
+    emptyHtml: 'Playlist fetched. Click <b style="color:var(--green-light)">Find on Spotify</b> to match its tracks.',
+  });
+
+  // ── Anghami fetch ──────────────────────────────────────────────────────────
+  async function fetchAnghamiPlaylist() {
+    const input = document.getElementById('ang-url-input');
+    const url = input.value.trim();
+    if (!url) return;
+
+    const v = views.anghami;
+    const hasUnadded = v.state.songs.some(s => s.selected && s.match);
+    if (hasUnadded && !confirm('Fetching a new playlist will replace the current results, including selected tracks you haven\'t added yet. Continue?')) {
+      return;
+    }
+
+    const errEl = document.getElementById('ang-fetch-error');
+    errEl.classList.add('hide');
+    const btn = document.getElementById('ang-fetch-btn');
+    btn.disabled = true; btn.textContent = 'Fetching…';
+    try {
+      const res = await fetch('/api/anghami/fetch', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url })
+      });
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        throw new Error(e.detail || res.statusText);
+      }
+      const data = await res.json();
+      anghamiPlaylist = data;
+      v.reset();  // clears any previous results; re-enables ang-search-btn (anghamiPlaylist is set)
+
+      document.getElementById('ang-meta').classList.remove('hide');
+      document.getElementById('ang-meta-name').textContent = data.name;
+      document.getElementById('ang-meta-count').textContent = `${data.total} track${data.total === 1 ? '' : 's'}`;
+      const warnEl = document.getElementById('ang-truncated-warning');
+      if (data.truncated) {
+        warnEl.textContent = `Anghami's page only exposes ${data.total} of ${data.declared_total} tracks — the rest can't be imported.`;
+        warnEl.classList.remove('hide');
+      } else {
+        warnEl.classList.add('hide');
+      }
+      toast(`Fetched "${data.name}" — ${data.total} tracks`);
+    } catch (e) {
+      errEl.textContent = e.message;
+      errEl.classList.remove('hide');
+    }
+    btn.disabled = false; btn.textContent = 'Fetch Playlist';
+  }
 
   // ── Tabs ───────────────────────────────────────────────────────────────────
   function showTab(tab) {
