@@ -95,7 +95,7 @@ While searching you can:
 - **Skip Track** — skip the song currently being scanned (useful if a track hangs)
 - See the *Now scanning:* line update live with the current track and overall progress
 
-Spotify search results are cached in `data/search_cache.json` and file metadata in `data/metadata_cache.json`, so subsequent runs are nearly instant for already-seen files.
+Spotify search results are cached in `data/search_cache.json` and file metadata in `data/metadata_cache.json`, so subsequent runs are nearly instant for already-seen files. Cache files are written atomically (temp file + rename), so a crash mid-write can't corrupt them. Metadata entries for files you've deleted or renamed are pruned automatically on the next scan (entries for folders that are temporarily offline — e.g. an unplugged external drive — are kept).
 
 If Spotify rate-limits the app (HTTP 429), the search stops gracefully with a "try again in N min" message — your progress so far is preserved and you can resume later.
 
@@ -109,7 +109,7 @@ The table shows every file with its Spotify match. Use the filters above the tab
 | Not Found | Songs with no Spotify match |
 | Selected | Only your checked rows |
 
-The text filter searches across artist, title, and filename. The page-header checkbox selects every matched row across the entire current filter (not just the visible page).
+The text filter searches across artist, title, and filename. The page-header checkbox selects every matched row across the entire current filter (not just the visible page), and it stays in sync automatically — it shows checked only while every matched row in the current filter is selected.
 
 ### Step 5 — Add to playlist
 1. Pick a playlist from the dropdown at the bottom, or click **+ New** to create one.
@@ -180,7 +180,7 @@ Your Spotify account isn't on the app's User Management allowlist (or the entry 
 Spotify enforces a rolling per-app limit (~180 requests/minute). The search loop sleeps 0.5 s between API calls to stay well under it. If you hit a 429, the search pauses cleanly — wait the indicated cooldown and click **Continue**. Long cooldowns (hours) are escalation penalties; once the timer ends, the cache means you don't pay the API cost for already-searched tracks.
 
 **Page hangs / unresponsive while scanning a large library**
-The app yields to the event loop on every iteration so the page should stay responsive. If it doesn't, make sure you're running with `--reload-include "*.py"` (the bare `--reload` watches every file, including `data/*.json`, and restarts mid-search). Restart the server.
+Folder scanning and each Spotify search run in a worker thread, and the search loop yields to the event loop on every iteration, so the page (and the Stop/Skip buttons) should stay responsive. If it doesn't, make sure you're running with `--reload-include "*.py"` (the bare `--reload` watches every file, including `data/*.json`, and restarts mid-search). Restart the server.
 
 **Song not found on Spotify**
 Search uses the file's artist + title tags. Files with missing or incorrect tags often fail. Re-tag with [Mp3tag](https://www.mp3tag.de/) and delete `data/search_cache.json` to force a re-search.
@@ -196,4 +196,5 @@ Open the Command Palette (`Ctrl+Shift+P`), run **Python: Select Interpreter**, a
 ## Notes
 
 - The app is intended to run locally — `127.0.0.1` only. There's no auth on the API; don't expose it to a network.
+- Requests whose `Host` header isn't `127.0.0.1` or `localhost` are rejected (`TrustedHostMiddleware`), which blocks DNS-rebinding attacks against the local API. If you deliberately serve it under another hostname, add that host to the middleware in `main.py`.
 - The Spotify Developer app must remain in **Development Mode** unless you apply for **Extended Quota Mode** (Spotify-reviewed; needed only if you want to share the app with users outside the allowlist).

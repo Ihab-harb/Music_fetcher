@@ -1,4 +1,5 @@
 import os
+import html
 import json
 import asyncio
 import re
@@ -6,6 +7,7 @@ import shutil
 from pathlib import Path
 from typing import List, Literal, Optional
 from fastapi import FastAPI, HTTPException, UploadFile, File
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from mutagen import File as MutagenFile
@@ -31,7 +33,19 @@ _songs_cache: Optional[List[dict]] = None
 _songs_cache_key: Optional[str] = None
 
 app = FastAPI()
+# Rejects requests whose Host header isn't local — blocks DNS-rebinding attacks
+# against this unauthenticated local API.
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=["127.0.0.1", "localhost"])
 app.mount("/static", StaticFiles(directory="static"), name="static")
+
+
+def write_json_atomic(path: Path, obj, **dump_kwargs):
+    """Write JSON via a temp file + rename so a crash mid-write can't corrupt
+    the existing file (the search cache can represent hours of rate-limited work)."""
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(obj, f, **dump_kwargs)
+    os.replace(tmp, path)
 
 
 class AddToPlaylistRequest(BaseModel):
@@ -50,7 +64,7 @@ class AddFolderRequest(BaseModel):
 # ── Folder config ─────────────────────────────────────────────────────────────
 
 def load_folders() -> List[str]:
-    if Path(FOLDERS_FILE).exists():
+    if FOLDERS_FILE.exists():
         try:
             with open(FOLDERS_FILE, "r", encoding="utf-8") as f:
                 return json.load(f).get("folders", [])
@@ -60,8 +74,7 @@ def load_folders() -> List[str]:
 
 
 def save_folders(folders: List[str]):
-    with open(FOLDERS_FILE, "w", encoding="utf-8") as f:
-        json.dump({"folders": folders}, f, indent=2)
+    write_json_atomic(FOLDERS_FILE, {"folders": folders}, indent=2)
 
 
 # ── Spotify auth ──────────────────────────────────────────────────────────────
@@ -107,8 +120,7 @@ def load_cache() -> dict:
 
 
 def save_cache(cache: dict):
-    with open(CACHE_FILE, "w", encoding="utf-8") as f:
-        json.dump(cache, f, ensure_ascii=False, indent=2)
+    write_json_atomic(CACHE_FILE, cache, ensure_ascii=False, indent=2)
 
 
 def make_cache_key(artist: str, title: str) -> str:
@@ -134,8 +146,7 @@ def _save_meta_cache():
     if not _meta_dirty:
         return
     try:
-        with open(METADATA_CACHE_FILE, "w", encoding="utf-8") as f:
-            json.dump(_meta_cache, f, ensure_ascii=False)
+        write_json_atomic(METADATA_CACHE_FILE, _meta_cache, ensure_ascii=False)
         _meta_dirty = False
     except Exception:
         pass
@@ -201,7 +212,7 @@ def invalidate_songs_cache():
 
 
 def scan_music_folders() -> List[dict]:
-    global _songs_cache, _songs_cache_key
+    global _songs_cache, _songs_cache_key, _meta_dirty
     all_folders = load_folders()
     if UPLOAD_DIR.exists():
         all_folders = all_folders + [str(UPLOAD_DIR.resolve())]
@@ -209,13 +220,28 @@ def scan_music_folders() -> List[dict]:
     if _songs_cache is not None and _songs_cache_key == cache_key:
         return _songs_cache
     songs = []
+    seen_paths = set()
+    scanned_folders = []
     for folder in all_folders:
         if not os.path.exists(folder):
             continue
+        scanned_folders.append(folder)
         for dirpath, _, filenames in os.walk(folder):
             for fname in filenames:
                 if os.path.splitext(fname)[1].lower() in SUPPORTED_EXTENSIONS:
-                    songs.append(extract_metadata_cached(Path(dirpath) / fname))
+                    filepath = Path(dirpath) / fname
+                    seen_paths.add(str(filepath))
+                    songs.append(extract_metadata_cached(filepath))
+    # Drop cache entries for files that no longer exist so the cache doesn't
+    # grow forever as files are deleted or renamed. Only prune within folders
+    # that were actually scanned — an offline external drive keeps its entries.
+    # str(Path(...)) so prefixes use the same separators as the cache keys
+    prefixes = tuple(str(Path(f)) + os.sep for f in scanned_folders)
+    stale = [k for k in _meta_cache if k not in seen_paths and k.startswith(prefixes)]
+    if stale:
+        for key in stale:
+            del _meta_cache[key]
+        _meta_dirty = True
     songs.sort(key=lambda x: (x["artist"].lower(), x["title"].lower()))
     _songs_cache = songs
     _songs_cache_key = cache_key
@@ -257,7 +283,7 @@ def login():
 @app.get("/callback")
 def callback(code: Optional[str] = None, error: Optional[str] = None):
     if error:
-        return HTMLResponse(f"<p>Authorization error: {error}</p>")
+        return HTMLResponse(f"<p>Authorization error: {html.escape(error)}</p>")
     if not code:
         return HTMLResponse("<p>No code received.</p>")
     get_sp_oauth().get_access_token(code)
@@ -455,7 +481,9 @@ async def search_stream(start_index: int = 0):
     if not sp:
         raise HTTPException(status_code=401, detail="Not authenticated")
 
-    songs = scan_music_folders()
+    # Folder scanning walks the filesystem and parses tags — run it in a worker
+    # thread so a large first-time scan doesn't freeze the event loop.
+    songs = await asyncio.to_thread(scan_music_folders)
     cache = load_cache()
     _search_state["stop"] = False
     _search_state["skip"] = False
@@ -489,7 +517,11 @@ async def search_stream(start_index: int = 0):
                 match = cache[key]
             else:
                 try:
-                    match = search_spotify_track(sp, song["artist"], song["title"])
+                    # sp.search is a blocking HTTP call — keep it off the event
+                    # loop so Stop/Skip POSTs are handled while it's in flight.
+                    match = await asyncio.to_thread(
+                        search_spotify_track, sp, song["artist"], song["title"]
+                    )
                     cache[key] = match
                     dirty = True
                 except spotipy.SpotifyException as e:
@@ -617,7 +649,10 @@ def add_to_playlist(req: AddToPlaylistRequest):
         seen.add(uri)
         new_uris.append(uri)
     added = 0
-    for i in range(0, len(new_uris), 100):
-        sp.playlist_add_items(req.playlist_id, new_uris[i: i + 100])
-        added += len(new_uris[i: i + 100])
+    try:
+        for i in range(0, len(new_uris), 100):
+            sp.playlist_add_items(req.playlist_id, new_uris[i: i + 100])
+            added += len(new_uris[i: i + 100])
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Spotify error after adding {added} tracks: {e}")
     return {"added": added, "duplicates_skipped": len(req.track_uris) - added}

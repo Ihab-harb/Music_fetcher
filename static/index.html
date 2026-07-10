@@ -994,7 +994,10 @@
       const data = await fetch('/api/add-to-playlist', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ playlist_id: pid, track_uris: uris })
-      }).then(r => r.json());
+      }).then(r => {
+        if (!r.ok) return r.json().catch(() => ({})).then(e => { throw new Error(e.detail || r.statusText); });
+        return r.json();
+      });
       let msg = `Added ${data.added} track${data.added === 1 ? '' : 's'}.`;
       if (data.duplicates_skipped) msg += ` Skipped ${data.duplicates_skipped} duplicate${data.duplicates_skipped === 1 ? '' : 's'}.`;
       toast(msg);
@@ -1228,6 +1231,10 @@
     document.getElementById('stat-skipped').textContent  = skipped;
     document.getElementById('stat-selected').textContent = selected;
     document.getElementById('bottom-count').textContent  = selected;
+    // Keep the header checkbox in sync with the current filter's selectable rows
+    const selectable = getFiltered().filter(item => item.match);
+    document.getElementById('header-cb').checked =
+      selectable.length > 0 && selectable.every(item => item.selected);
   }
 
   function prevPage() { if (state.page > 0) { state.page--; renderTable(); } }
