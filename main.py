@@ -475,15 +475,9 @@ def search_control(action: Literal["stop", "skip"]):
     return {"ok": True}
 
 
-@app.get("/api/search-stream")
-async def search_stream(start_index: int = 0):
-    sp = get_spotify()
-    if not sp:
-        raise HTTPException(status_code=401, detail="Not authenticated")
-
-    # Folder scanning walks the filesystem and parses tags — run it in a worker
-    # thread so a large first-time scan doesn't freeze the event loop.
-    songs = await asyncio.to_thread(scan_music_folders)
+def spotify_search_stream_response(sp: spotipy.Spotify, songs: List[dict], start_index: int) -> StreamingResponse:
+    """Shared SSE search loop: streams one Spotify match per song. Used by both the
+    local-library flow and the Anghami import flow."""
     cache = load_cache()
     _search_state["stop"] = False
     _search_state["skip"] = False
@@ -556,6 +550,18 @@ async def search_stream(start_index: int = 0):
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+@app.get("/api/search-stream")
+async def search_stream(start_index: int = 0):
+    sp = get_spotify()
+    if not sp:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    # Folder scanning walks the filesystem and parses tags — run it in a worker
+    # thread so a large first-time scan doesn't freeze the event loop.
+    songs = await asyncio.to_thread(scan_music_folders)
+    return spotify_search_stream_response(sp, songs, start_index)
 
 
 # ── Playlists ─────────────────────────────────────────────────────────────────
