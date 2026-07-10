@@ -38,3 +38,35 @@ def validate_playlist_url(url: str) -> str:
     if not m:
         raise InvalidUrl(url)
     return m.group(1)
+
+
+def parse_playlist_page(html_text: str) -> dict:
+    """Extract the playlist from the page's schema.org MusicPlaylist JSON-LD block."""
+    soup = BeautifulSoup(html_text, "html.parser")
+    for tag in soup.find_all("script", attrs={"type": "application/ld+json"}):
+        try:
+            data = json.loads(tag.string or "")
+        except (ValueError, TypeError):
+            continue
+        if not (isinstance(data, dict) and data.get("@type") == "MusicPlaylist"):
+            continue
+        tracks = []
+        for rec in data.get("track") or []:
+            title = (rec.get("name") or "").strip()
+            artist = ((rec.get("byArtist") or {}).get("name") or "").strip()
+            if title:
+                tracks.append({"artist": artist, "title": title})
+        if not tracks:
+            raise ParseError("MusicPlaylist block has no readable tracks")
+        try:
+            declared = int(data.get("numTracks") or 0)
+        except (TypeError, ValueError):
+            declared = 0
+        return {
+            "name": (data.get("name") or "Anghami playlist").strip(),
+            "tracks": tracks,
+            "declared_total": max(declared, len(tracks)),
+        }
+    if "Playlist deleted" in html_text:
+        raise PlaylistNotFound()
+    raise ParseError("no MusicPlaylist ld+json block found")
