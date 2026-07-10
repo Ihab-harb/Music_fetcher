@@ -498,6 +498,15 @@
     /* ── helper ── */
     .hide { display: none !important; }
 
+    .tabs { display:flex; gap:4px; margin-bottom:18px; border-bottom:1px solid var(--line); }
+    .tab {
+      background:none; border:none; cursor:pointer; padding:10px 16px;
+      font:inherit; font-size:13px; font-weight:600; color:var(--text-dim);
+      border-bottom:2px solid transparent; margin-bottom:-1px;
+    }
+    .tab:hover { color:var(--text); }
+    .tab.tab-active { color:var(--text); border-bottom-color:var(--green-light); }
+
     @media (max-width: 640px) {
       .header, .section, .strip, .pl-panel, .bottom-bar, .stats { padding-left: 16px; padding-right: 16px; }
       .stats { gap: 6px; }
@@ -539,6 +548,11 @@
 
   <!-- Main -->
   <section id="main-view" class="hide">
+    <div class="tabs reveal">
+      <button id="tab-btn-library" class="tab tab-active" onclick="showTab('library')">My Library</button>
+      <button id="tab-btn-anghami" class="tab" onclick="showTab('anghami')">Import from Anghami</button>
+    </div>
+    <div id="tab-library">
 
     <!-- Sources -->
     <div class="section reveal d1">
@@ -575,11 +589,11 @@
     <!-- Toolbar -->
     <div class="section reveal d2" style="padding-top:12px; padding-bottom:12px;">
       <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
-        <button id="search-btn" onclick="startSearch()" class="btn btn-primary">Find on Spotify</button>
-        <button onclick="selectAllMatched()" class="btn btn-ghost">Select Matched</button>
-        <button onclick="clearSelection()" class="btn btn-ghost">Clear</button>
-        <input id="filter-input" oninput="filterChanged()" type="text" placeholder="Filter artist / title…" class="input" style="width:14rem;" />
-        <select id="status-filter" onchange="filterChanged()" class="input">
+        <button id="search-btn" onclick="views.library.startSearch()" class="btn btn-primary">Find on Spotify</button>
+        <button onclick="views.library.selectAllMatched()" class="btn btn-ghost">Select Matched</button>
+        <button onclick="views.library.clearSelection()" class="btn btn-ghost">Clear</button>
+        <input id="filter-input" oninput="views.library.filterChanged()" type="text" placeholder="Filter artist / title…" class="input" style="width:14rem;" />
+        <select id="status-filter" onchange="views.library.filterChanged()" class="input">
           <option value="all">All songs</option>
           <option value="matched">Matched</option>
           <option value="notfound">Not Found</option>
@@ -592,9 +606,9 @@
     <!-- Progress -->
     <div id="progress-bar-wrap" class="section hide" style="padding-top:14px; padding-bottom:14px;">
       <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:10px;">
-        <button onclick="stopSearch()" id="stop-btn" class="btn btn-danger">Stop</button>
-        <button onclick="skipTrack()" id="skip-btn" class="btn btn-warn">Skip Track</button>
-        <button onclick="continueSearch()" id="continue-btn" class="btn btn-success hide">Continue</button>
+        <button onclick="views.library.stopSearch()" id="stop-btn" class="btn btn-danger">Stop</button>
+        <button onclick="views.library.skipTrack()" id="skip-btn" class="btn btn-warn">Skip Track</button>
+        <button onclick="views.library.continueSearch()" id="continue-btn" class="btn btn-success hide">Continue</button>
         <span style="flex:1"></span>
         <span id="progress-count" style="font-size:11px; color:var(--text-dim); font-variant-numeric:tabular-nums;">0 / 0</span>
       </div>
@@ -617,11 +631,11 @@
     </div>
 
     <!-- Table -->
-    <div style="overflow-x:auto;">
+    <div id="lib-table-wrap" style="overflow-x:auto;">
       <table class="data-table">
         <thead>
           <tr>
-            <th style="width:38px; text-align:center;"><input type="checkbox" id="header-cb" onchange="toggleSelectAll(this)" /></th>
+            <th style="width:38px; text-align:center;"><input type="checkbox" id="header-cb" onchange="views.library.toggleSelectAll(this)" /></th>
             <th style="width:48px;">#</th>
             <th>File</th>
             <th>Artist</th>
@@ -642,10 +656,12 @@
     <div class="strip">
       <span id="page-info" style="font-variant-numeric:tabular-nums;"></span>
       <div style="display:flex; gap:6px;">
-        <button onclick="prevPage()" id="prev-btn" disabled class="btn btn-ghost">← Prev</button>
-        <button onclick="nextPage()" id="next-btn" disabled class="btn btn-ghost">Next →</button>
+        <button onclick="views.library.prevPage()" id="prev-btn" disabled class="btn btn-ghost">← Prev</button>
+        <button onclick="views.library.nextPage()" id="next-btn" disabled class="btn btn-ghost">Next →</button>
       </div>
     </div>
+    </div>
+    <div id="tab-anghami" class="hide"></div>
 
     <!-- Playlist contents -->
     <div id="playlist-panel" class="pl-panel hide">
@@ -688,17 +704,7 @@
 
   <script>
   const PAGE_SIZE = 100;
-  const state = {
-    songs: [],
-    stats: { matched: 0, notFound: 0, skipped: 0, selected: 0 },
-    searching: false,
-    stopped: false,
-    resumeIndex: 0,
-    page: 0,
-    filter: { text: '', status: 'all' },
-    renderTimer: null,
-    _es: null,
-  };
+  let anghamiPlaylist = null;  // { name, url, total, declared_total, truncated } once fetched
 
   // ── Toast ──────────────────────────────────────────────────────────────────
   function toast(message, type = 'ok', duration = 4000) {
@@ -712,22 +718,6 @@
       el.classList.add('hide');
       setTimeout(() => el.remove(), 180);
     }, duration);
-  }
-
-  // ── Progress (rAF-coalesced) ───────────────────────────────────────────────
-  let _rafId = null, _rafData = null;
-  function scheduleProgressUpdate(d) {
-    _rafData = d;
-    if (_rafId) return;
-    _rafId = requestAnimationFrame(() => {
-      _rafId = null;
-      const ev = _rafData;
-      const pct = Math.round((ev.index + 1) / ev.total * 100);
-      document.getElementById('progress-fill').style.width = pct + '%';
-      document.getElementById('progress-count').textContent = `${ev.index + 1} / ${ev.total}`;
-      document.getElementById('scanning-track').textContent =
-        `${ev.song.artist || 'Unknown Artist'} — ${ev.song.title || ev.song.filename}`;
-    });
   }
 
   // ── Bootstrap ──────────────────────────────────────────────────────────────
@@ -770,13 +760,9 @@
 
   function login()  { window.location.href = '/login'; }
   async function logout() {
-    if (state._es) { try { state._es.close(); } catch {} state._es = null; }
-    state.songs = [];
-    state.stats = { matched: 0, notFound: 0, skipped: 0, selected: 0 };
-    state.page = 0;
-    state.searching = false;
-    state.stopped = false;
-    state.resumeIndex = 0;
+    anghamiPlaylist = null;
+    views.library.reset();
+    if (views.anghami) views.anghami.reset();
     showNotAuth();
     try { await fetch('/api/logout'); } catch (e) { console.error('Logout request failed:', e); }
   }
@@ -986,7 +972,7 @@
   async function addToPlaylist() {
     const pid = document.getElementById('playlist-select').value;
     if (!pid) { toast('Please select a playlist first.', 'warn'); return; }
-    const uris = state.songs.filter(s => s.selected && s.match).map(s => s.match.uri);
+    const uris = activeView().state.songs.filter(s => s.selected && s.match).map(s => s.match.uri);
     if (!uris.length) { toast('No matched tracks selected.', 'warn'); return; }
     const btn = document.getElementById('add-btn');
     btn.disabled = true; btn.textContent = 'Adding…';
@@ -1006,166 +992,6 @@
     btn.disabled = false; btn.textContent = 'Add to Playlist';
   }
 
-  // ── Search stream ──────────────────────────────────────────────────────────
-
-  function startSearch(resume = false) {
-    if (state.searching) return;
-    if (!resume) {
-      state.songs = [];
-      state.page = 0;
-      state.stats = { matched: 0, notFound: 0, skipped: 0, selected: 0 };
-    }
-    state.searching = true;
-    state.stopped = false;
-
-    document.getElementById('search-btn').disabled = true;
-    document.getElementById('progress-bar-wrap').classList.remove('hide');
-    document.getElementById('stop-btn').classList.remove('hide');
-    document.getElementById('skip-btn').classList.remove('hide');
-    document.getElementById('continue-btn').classList.add('hide');
-    const scanEl = document.getElementById('scanning-track');
-    scanEl.classList.add('pulse-dot');
-    scanEl.textContent = '—';
-
-    const startIdx = resume ? state.resumeIndex : 0;
-    const es = new EventSource(`/api/search-stream?start_index=${startIdx}`);
-    state._es = es;
-
-    es.onmessage = e => {
-      const d = JSON.parse(e.data);
-
-      if (d.stopped || d.rate_limited) {
-        es.close();
-        state.searching = false;
-        state.stopped = true;
-        state.resumeIndex = d.index;
-        document.getElementById('search-btn').disabled = false;
-        document.getElementById('stop-btn').classList.add('hide');
-        document.getElementById('skip-btn').classList.add('hide');
-        document.getElementById('continue-btn').classList.remove('hide');
-        scanEl.classList.remove('pulse-dot');
-        if (d.rate_limited) {
-          const mins = Math.max(1, Math.ceil(d.retry_after / 60));
-          scanEl.textContent = `Rate limit reached at ${d.index} / ${d.total}. Try again in ~${mins} min.`;
-          toast(`Spotify rate-limited the app. Try again in ~${mins} min.`, 'warn', 6000);
-        } else {
-          scanEl.textContent = `Paused at ${d.index} / ${d.total}`;
-        }
-        scheduleRender();
-        return;
-      }
-
-      if (d.done) {
-        es.close();
-        state.searching = false;
-        state.stopped = false;
-        state.resumeIndex = 0;
-        document.getElementById('search-btn').disabled = false;
-        document.getElementById('progress-bar-wrap').classList.add('hide');
-        scanEl.classList.remove('pulse-dot');
-        renderTable();
-        return;
-      }
-
-      state.songs.push({ idx: state.songs.length, song: d.song, match: d.match, selected: false, skipped: !!d.skipped });
-      if (d.match) state.stats.matched++;
-      else if (d.skipped) state.stats.skipped++;
-      else if (d.match === null) state.stats.notFound++;
-      state.resumeIndex = d.index + 1;
-
-      scheduleProgressUpdate(d);
-      if ((d.index + 1) % 500 === 0) scheduleRender();
-    };
-
-    es.onerror = () => {
-      es.close();
-      state.searching = false;
-      document.getElementById('search-btn').disabled = false;
-      scanEl.classList.remove('pulse-dot');
-      if (!state.stopped) document.getElementById('progress-bar-wrap').classList.add('hide');
-      scheduleRender();
-    };
-  }
-
-  function stopSearch()     { fetch('/api/search-control/stop', { method: 'POST' }); }
-  function skipTrack()      { fetch('/api/search-control/skip', { method: 'POST' }); }
-  function continueSearch() { startSearch(true); }
-
-  function scheduleRender() {
-    if (state.renderTimer) return;
-    state.renderTimer = setTimeout(() => { state.renderTimer = null; renderTable(); }, 300);
-  }
-
-  // ── Filtering / selection ──────────────────────────────────────────────────
-
-  function getFiltered() {
-    const { text, status } = state.filter;
-    return state.songs.filter(item => {
-      const { song, match, selected, skipped } = item;
-      if (status === 'matched'  && !match)                      return false;
-      if (status === 'notfound' && (match !== null || skipped)) return false;
-      if (status === 'skipped'  && !skipped)                    return false;
-      if (status === 'selected' && !selected)                   return false;
-      if (text) {
-        const q = text.toLowerCase();
-        return song.artist.toLowerCase().includes(q) ||
-               song.title.toLowerCase().includes(q)  ||
-               song.filename.toLowerCase().includes(q);
-      }
-      return true;
-    });
-  }
-
-  let _filterTimer = null;
-  function filterChanged() {
-    clearTimeout(_filterTimer);
-    _filterTimer = setTimeout(() => {
-      state.filter.text   = document.getElementById('filter-input').value;
-      state.filter.status = document.getElementById('status-filter').value;
-      state.page = 0;
-      renderTable();
-    }, 200);
-  }
-
-  function selectAllMatched() {
-    let added = 0;
-    state.songs.forEach(s => { if (s.match && !s.selected) { s.selected = true; added++; } });
-    state.stats.selected += added;
-    renderTable();
-  }
-
-  function clearSelection() {
-    state.songs.forEach(s => s.selected = false);
-    state.stats.selected = 0;
-    renderTable();
-  }
-
-  function toggleSelectAll(cb) {
-    const filtered = getFiltered();
-    let delta = 0;
-    for (const item of filtered) {
-      if (!item.match) continue;
-      if (cb.checked && !item.selected)      { item.selected = true;  delta++; }
-      else if (!cb.checked && item.selected) { item.selected = false; delta--; }
-    }
-    state.stats.selected += delta;
-    renderTable();
-  }
-
-  function toggleRow(globalIdx) {
-    const item = state.songs[globalIdx];
-    if (!item.match) return;
-    item.selected = !item.selected;
-    if (item.selected) state.stats.selected++;
-    else state.stats.selected--;
-    const rowEl = document.querySelector(`tr[data-idx="${globalIdx}"]`);
-    if (rowEl) {
-      rowEl.querySelector('input[type=checkbox]').checked = item.selected;
-      rowEl.classList.toggle('is-selected', item.selected);
-    }
-    updateStats();
-  }
-
   // ── Render ─────────────────────────────────────────────────────────────────
 
   function esc(s) {
@@ -1173,73 +999,306 @@
     return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   }
 
-  function renderTable() {
-    const filtered = getFiltered();
-    const start = state.page * PAGE_SIZE;
-    const page  = filtered.slice(start, start + PAGE_SIZE);
-    const tbody = document.getElementById('tbody');
+  // ── Results view factory (one instance per tab) ────────────────────────────
+  let activeTab = 'library';
+  const views = {};
+  const activeView = () => views[activeTab];
 
-    if (page.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="7" style="padding:48px 16px; text-align:center; color:var(--text-faint); font-size:12px;">${
-        state.songs.length === 0
-          ? 'Add folders or upload files above, then click <b style="color:var(--green-light)">Find on Spotify</b>.'
-          : 'No songs match the current filter.'
-      }</td></tr>`;
-    } else {
-      tbody.innerHTML = page.map((item, i) => {
-        const globalIdx = item.idx;
-        const { song, match, selected, skipped } = item;
-        const statusHtml = match
-          ? '<span class="badge badge--matched">Matched</span>'
-          : skipped
-            ? '<span class="badge badge--skipped">Skipped</span>'
-            : match === null
-              ? '<span class="badge badge--notfound">Not Found</span>'
-              : '<span class="badge badge--idle">—</span>';
-        const matchHtml = match
-          ? `<div class="truncate-cell" style="color:#86efac">${esc(match.artist)} — ${esc(match.name)}</div>
-             <div class="truncate-cell" style="color:var(--text-faint); font-size:11px;">${esc(match.album)}</div>`
-          : '<span style="color:var(--text-faint)">—</span>';
-        return `<tr data-idx="${globalIdx}" class="${selected ? 'is-selected' : ''}">
-          <td style="text-align:center;">
-            <input type="checkbox" ${selected ? 'checked' : ''} ${!match ? 'disabled' : ''} onchange="toggleRow(${globalIdx})" />
-          </td>
-          <td class="row-num">${start + i + 1}</td>
-          <td class="truncate-cell" style="color:var(--text-dim);" title="${esc(song.filename)}">${esc(song.filename)}</td>
-          <td class="truncate-cell" title="${esc(song.artist)}">${esc(song.artist) || '<span style="color:var(--text-faint)">Unknown</span>'}</td>
-          <td class="truncate-cell" title="${esc(song.title)}">${esc(song.title) || '<span style="color:var(--text-faint)">Unknown</span>'}</td>
-          <td>${matchHtml}</td>
-          <td>${statusHtml}</td>
-        </tr>`;
-      }).join('');
+  function createResultsView(cfg) {
+    // cfg: { key, prefix, streamPath, showFile, emptyHtml }
+    const $ = name => document.getElementById(cfg.prefix + name);
+    const COLS = cfg.showFile ? 7 : 6;
+    const state = {
+      songs: [],
+      stats: { matched: 0, notFound: 0, skipped: 0, selected: 0 },
+      searching: false,
+      stopped: false,
+      resumeIndex: 0,
+      page: 0,
+      filter: { text: '', status: 'all' },
+      renderTimer: null,
+      _es: null,
+    };
+
+    // Progress (rAF-coalesced), per view
+    let _rafId = null, _rafData = null;
+    function scheduleProgressUpdate(d) {
+      _rafData = d;
+      if (_rafId) return;
+      _rafId = requestAnimationFrame(() => {
+        _rafId = null;
+        const ev = _rafData;
+        const pct = Math.round((ev.index + 1) / ev.total * 100);
+        $('progress-fill').style.width = pct + '%';
+        $('progress-count').textContent = `${ev.index + 1} / ${ev.total}`;
+        $('scanning-track').textContent =
+          `${ev.song.artist || 'Unknown Artist'} — ${ev.song.title || ev.song.filename}`;
+      });
     }
 
-    const total = filtered.length;
-    const totalPages = Math.ceil(total / PAGE_SIZE);
-    document.getElementById('page-info').textContent = total
-      ? `${start + 1}–${Math.min(start + PAGE_SIZE, total)} of ${total}` : '';
-    document.getElementById('prev-btn').disabled = state.page === 0;
-    document.getElementById('next-btn').disabled = state.page >= totalPages - 1;
-    updateStats();
+    function startSearch(resume = false) {
+      if (state.searching) return;
+      if (!resume) {
+        state.songs = [];
+        state.page = 0;
+        state.stats = { matched: 0, notFound: 0, skipped: 0, selected: 0 };
+      }
+      state.searching = true;
+      state.stopped = false;
+
+      $('search-btn').disabled = true;
+      $('progress-bar-wrap').classList.remove('hide');
+      $('stop-btn').classList.remove('hide');
+      $('skip-btn').classList.remove('hide');
+      $('continue-btn').classList.add('hide');
+      const scanEl = $('scanning-track');
+      scanEl.classList.add('pulse-dot');
+      scanEl.textContent = '—';
+
+      const startIdx = resume ? state.resumeIndex : 0;
+      const es = new EventSource(`${cfg.streamPath}?start_index=${startIdx}`);
+      state._es = es;
+
+      es.onmessage = e => {
+        const d = JSON.parse(e.data);
+
+        if (d.stopped || d.rate_limited) {
+          es.close();
+          state.searching = false;
+          state.stopped = true;
+          state.resumeIndex = d.index;
+          $('search-btn').disabled = false;
+          $('stop-btn').classList.add('hide');
+          $('skip-btn').classList.add('hide');
+          $('continue-btn').classList.remove('hide');
+          scanEl.classList.remove('pulse-dot');
+          if (d.rate_limited) {
+            const mins = Math.max(1, Math.ceil(d.retry_after / 60));
+            scanEl.textContent = `Rate limit reached at ${d.index} / ${d.total}. Try again in ~${mins} min.`;
+            toast(`Spotify rate-limited the app. Try again in ~${mins} min.`, 'warn', 6000);
+          } else {
+            scanEl.textContent = `Paused at ${d.index} / ${d.total}`;
+          }
+          scheduleRender();
+          return;
+        }
+
+        if (d.done) {
+          es.close();
+          state.searching = false;
+          state.stopped = false;
+          state.resumeIndex = 0;
+          $('search-btn').disabled = false;
+          $('progress-bar-wrap').classList.add('hide');
+          scanEl.classList.remove('pulse-dot');
+          renderTable();
+          return;
+        }
+
+        state.songs.push({ idx: state.songs.length, song: d.song, match: d.match, selected: false, skipped: !!d.skipped });
+        if (d.match) state.stats.matched++;
+        else if (d.skipped) state.stats.skipped++;
+        else if (d.match === null) state.stats.notFound++;
+        state.resumeIndex = d.index + 1;
+
+        scheduleProgressUpdate(d);
+        if ((d.index + 1) % 500 === 0) scheduleRender();
+      };
+
+      es.onerror = () => {
+        es.close();
+        state.searching = false;
+        $('search-btn').disabled = false;
+        scanEl.classList.remove('pulse-dot');
+        if (!state.stopped) $('progress-bar-wrap').classList.add('hide');
+        scheduleRender();
+      };
+    }
+
+    function stopSearch()     { fetch('/api/search-control/stop', { method: 'POST' }); }
+    function skipTrack()      { fetch('/api/search-control/skip', { method: 'POST' }); }
+    function continueSearch() { startSearch(true); }
+
+    function scheduleRender() {
+      if (state.renderTimer) return;
+      state.renderTimer = setTimeout(() => { state.renderTimer = null; renderTable(); }, 300);
+    }
+
+    function getFiltered() {
+      const { text, status } = state.filter;
+      return state.songs.filter(item => {
+        const { song, match, selected, skipped } = item;
+        if (status === 'matched'  && !match)                      return false;
+        if (status === 'notfound' && (match !== null || skipped)) return false;
+        if (status === 'skipped'  && !skipped)                    return false;
+        if (status === 'selected' && !selected)                   return false;
+        if (text) {
+          const q = text.toLowerCase();
+          return song.artist.toLowerCase().includes(q) ||
+                 song.title.toLowerCase().includes(q)  ||
+                 (song.filename || '').toLowerCase().includes(q);
+        }
+        return true;
+      });
+    }
+
+    let _filterTimer = null;
+    function filterChanged() {
+      clearTimeout(_filterTimer);
+      _filterTimer = setTimeout(() => {
+        state.filter.text   = $('filter-input').value;
+        state.filter.status = $('status-filter').value;
+        state.page = 0;
+        renderTable();
+      }, 200);
+    }
+
+    function selectAllMatched() {
+      let added = 0;
+      state.songs.forEach(s => { if (s.match && !s.selected) { s.selected = true; added++; } });
+      state.stats.selected += added;
+      renderTable();
+    }
+
+    function clearSelection() {
+      state.songs.forEach(s => s.selected = false);
+      state.stats.selected = 0;
+      renderTable();
+    }
+
+    function toggleSelectAll(cb) {
+      const filtered = getFiltered();
+      let delta = 0;
+      for (const item of filtered) {
+        if (!item.match) continue;
+        if (cb.checked && !item.selected)      { item.selected = true;  delta++; }
+        else if (!cb.checked && item.selected) { item.selected = false; delta--; }
+      }
+      state.stats.selected += delta;
+      renderTable();
+    }
+
+    function toggleRow(globalIdx) {
+      const item = state.songs[globalIdx];
+      if (!item.match) return;
+      item.selected = !item.selected;
+      if (item.selected) state.stats.selected++;
+      else state.stats.selected--;
+      const rowEl = document.querySelector(`#${cfg.prefix || 'lib-'}table-wrap tr[data-idx="${globalIdx}"]`)
+                 || document.querySelector(`tr[data-idx="${globalIdx}"]`);
+      if (rowEl) {
+        rowEl.querySelector('input[type=checkbox]').checked = item.selected;
+        rowEl.classList.toggle('is-selected', item.selected);
+      }
+      updateStats();
+    }
+
+    function renderTable() {
+      const filtered = getFiltered();
+      const start = state.page * PAGE_SIZE;
+      const page  = filtered.slice(start, start + PAGE_SIZE);
+      const tbody = $('tbody');
+
+      if (page.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="${COLS}" style="padding:48px 16px; text-align:center; color:var(--text-faint); font-size:12px;">${
+          state.songs.length === 0 ? cfg.emptyHtml : 'No songs match the current filter.'
+        }</td></tr>`;
+      } else {
+        tbody.innerHTML = page.map((item, i) => {
+          const globalIdx = item.idx;
+          const { song, match, selected, skipped } = item;
+          const statusHtml = match
+            ? '<span class="badge badge--matched">Matched</span>'
+            : skipped
+              ? '<span class="badge badge--skipped">Skipped</span>'
+              : match === null
+                ? '<span class="badge badge--notfound">Not Found</span>'
+                : '<span class="badge badge--idle">—</span>';
+          const matchHtml = match
+            ? `<div class="truncate-cell" style="color:#86efac">${esc(match.artist)} — ${esc(match.name)}</div>
+               <div class="truncate-cell" style="color:var(--text-faint); font-size:11px;">${esc(match.album)}</div>`
+            : '<span style="color:var(--text-faint)">—</span>';
+          const fileCell = cfg.showFile
+            ? `<td class="truncate-cell" style="color:var(--text-dim);" title="${esc(song.filename)}">${esc(song.filename)}</td>`
+            : '';
+          return `<tr data-idx="${globalIdx}" class="${selected ? 'is-selected' : ''}">
+            <td style="text-align:center;">
+              <input type="checkbox" ${selected ? 'checked' : ''} ${!match ? 'disabled' : ''} onchange="views.${cfg.key}.toggleRow(${globalIdx})" />
+            </td>
+            <td class="row-num">${start + i + 1}</td>
+            ${fileCell}
+            <td class="truncate-cell" title="${esc(song.artist)}">${esc(song.artist) || '<span style="color:var(--text-faint)">Unknown</span>'}</td>
+            <td class="truncate-cell" title="${esc(song.title)}">${esc(song.title) || '<span style="color:var(--text-faint)">Unknown</span>'}</td>
+            <td>${matchHtml}</td>
+            <td>${statusHtml}</td>
+          </tr>`;
+        }).join('');
+      }
+
+      const total = filtered.length;
+      const totalPages = Math.ceil(total / PAGE_SIZE);
+      $('page-info').textContent = total
+        ? `${start + 1}–${Math.min(start + PAGE_SIZE, total)} of ${total}` : '';
+      $('prev-btn').disabled = state.page === 0;
+      $('next-btn').disabled = state.page >= totalPages - 1;
+      updateStats();
+    }
+
+    function updateStats() {
+      const { matched, notFound, skipped, selected } = state.stats;
+      $('stat-total').textContent    = state.songs.length;
+      $('stat-matched').textContent  = matched;
+      $('stat-notfound').textContent = notFound;
+      $('stat-skipped').textContent  = skipped;
+      $('stat-selected').textContent = selected;
+      if (activeTab === cfg.key) {
+        document.getElementById('bottom-count').textContent = selected;
+      }
+      // Keep the header checkbox in sync with the current filter's selectable rows
+      const selectable = getFiltered().filter(item => item.match);
+      $('header-cb').checked =
+        selectable.length > 0 && selectable.every(item => item.selected);
+    }
+
+    function prevPage() { if (state.page > 0) { state.page--; renderTable(); } }
+    function nextPage() {
+      if (state.page < Math.ceil(getFiltered().length / PAGE_SIZE) - 1) { state.page++; renderTable(); }
+    }
+
+    function reset() {
+      if (state._es) { try { state._es.close(); } catch {} state._es = null; }
+      state.songs = [];
+      state.stats = { matched: 0, notFound: 0, skipped: 0, selected: 0 };
+      state.page = 0;
+      state.searching = false;
+      state.stopped = false;
+      state.resumeIndex = 0;
+      $('progress-bar-wrap').classList.add('hide');
+      $('search-btn').disabled = (cfg.key === 'anghami' && !anghamiPlaylist);
+      renderTable();
+    }
+
+    return { state, startSearch, stopSearch, skipTrack, continueSearch, filterChanged,
+             selectAllMatched, clearSelection, toggleSelectAll, toggleRow,
+             prevPage, nextPage, renderTable, updateStats, reset };
   }
 
-  function updateStats() {
-    const { matched, notFound, skipped, selected } = state.stats;
-    document.getElementById('stat-total').textContent    = state.songs.length;
-    document.getElementById('stat-matched').textContent  = matched;
-    document.getElementById('stat-notfound').textContent = notFound;
-    document.getElementById('stat-skipped').textContent  = skipped;
-    document.getElementById('stat-selected').textContent = selected;
-    document.getElementById('bottom-count').textContent  = selected;
-    // Keep the header checkbox in sync with the current filter's selectable rows
-    const selectable = getFiltered().filter(item => item.match);
-    document.getElementById('header-cb').checked =
-      selectable.length > 0 && selectable.every(item => item.selected);
-  }
+  views.library = createResultsView({
+    key: 'library',
+    prefix: '',
+    streamPath: '/api/search-stream',
+    showFile: true,
+    emptyHtml: 'Add folders or upload files above, then click <b style="color:var(--green-light)">Find on Spotify</b>.',
+  });
 
-  function prevPage() { if (state.page > 0) { state.page--; renderTable(); } }
-  function nextPage() {
-    if (state.page < Math.ceil(getFiltered().length / PAGE_SIZE) - 1) { state.page++; renderTable(); }
+  // ── Tabs ───────────────────────────────────────────────────────────────────
+  function showTab(tab) {
+    activeTab = tab;
+    document.getElementById('tab-library').classList.toggle('hide', tab !== 'library');
+    document.getElementById('tab-anghami').classList.toggle('hide', tab !== 'anghami');
+    document.getElementById('tab-btn-library').classList.toggle('tab-active', tab === 'library');
+    document.getElementById('tab-btn-anghami').classList.toggle('tab-active', tab === 'anghami');
+    if (views[tab]) views[tab].updateStats();  // refresh bottom-bar count for this tab
   }
 
   init();
