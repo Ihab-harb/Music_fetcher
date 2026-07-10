@@ -1,6 +1,6 @@
 # Music Fetcher
 
-A local web app that scans your audio library, finds each track on Spotify, and adds the matches to a playlist.
+A local web app that scans your audio library, finds each track on Spotify, and adds the matches to a playlist. It can also import a public Anghami playlist by URL.
 
 ---
 
@@ -119,6 +119,17 @@ The text filter searches across artist, title, and filename. The page-header che
 
 Duplicates are filtered out twice: once within your selection and once against tracks already in the target playlist. The result alert tells you how many were added and how many were skipped as duplicates.
 
+### Importing an Anghami playlist
+
+The **Import from Anghami** tab converts a public Anghami playlist into a Spotify playlist:
+
+1. Open the playlist in Anghami, use **Share → Copy Link** to get a URL like `https://play.anghami.com/playlist/123456`, and paste it into the tab.
+2. Click **Fetch Playlist** — the playlist name and track count appear. Private or deleted playlists can't be imported; only playlists visible on Anghami's public web player work.
+3. Click **Find on Spotify** and review matches exactly like the local-library flow (Stop/Continue, Skip, filters, selection).
+4. Pick or create a target Spotify playlist — **+ New** pre-fills the Anghami playlist's name — and click **Add to Playlist**.
+
+Anghami's page occasionally exposes only part of a very long playlist; if so, the app shows how many of the declared tracks it could read. Searches share the same cache as the library flow (`data/search_cache.json`).
+
 ---
 
 ## Project Structure
@@ -126,13 +137,17 @@ Duplicates are filtered out twice: once within your selection and once against t
 ```
 music_fetcher/
 ├── main.py                        # FastAPI backend
+├── anghami.py                     # Anghami playlist scraper
 ├── requirements.txt               # Python dependencies
+├── requirements-dev.txt           # Development dependencies (pytest, etc.)
 ├── .env                           # Spotify credentials (gitignored — create this yourself)
 ├── .gitignore
 ├── README.md
 ├── static/
 │   ├── index.html                 # Frontend (single-page app)
 │   └── tailwind.css               # Pre-built Tailwind stylesheet
+├── tests/                         # Unit and integration tests
+│   └── test_*.py                  # Test modules
 ├── data/                          # Runtime state (gitignored)
 │   ├── folders.json               # Configured folder paths
 │   ├── search_cache.json          # Spotify search results cache
@@ -190,6 +205,9 @@ Click **Logout** in the app (it deletes `data/spotify_token_cache`), then **Conn
 
 **Import warnings in VS Code**
 Open the Command Palette (`Ctrl+Shift+P`), run **Python: Select Interpreter**, and choose the interpreter at the path returned by `python -c "import sys; print(sys.executable)"`.
+
+**Anghami import says the site may have changed**
+The importer reads the playlist data embedded in Anghami's public web page. If Anghami changes that page, fetching fails with this message — check for an updated version of this app, or file an issue. All Anghami-specific code is in `anghami.py`.
 
 ---
 
