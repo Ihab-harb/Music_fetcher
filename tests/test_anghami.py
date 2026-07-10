@@ -63,3 +63,43 @@ def test_parse_playlist_page_musicplaylist_without_tracks():
             "</script></head><body></body></html>")
     with pytest.raises(anghami.ParseError):
         anghami.parse_playlist_page(html)
+
+
+# Finding 1 tests: lowercase "numtracks" key (real Anghami pages emit this)
+def test_parse_playlist_page_lowercase_numtracks():
+    """Real Anghami pages use lowercase 'numtracks', not 'numTracks'.
+    This test ensures truncation detection works when declared_total < len(tracks)."""
+    html = ('<html><head><script type="application/ld+json">'
+            '{"@type": "MusicPlaylist", "name": "Test", '
+            '"numtracks": 5, '
+            '"track": ['
+            '  {"name": "Song 1", "byArtist": {"name": "Artist 1"}},'
+            '  {"name": "Song 2", "byArtist": {"name": "Artist 2"}}'
+            ']}'
+            "</script></head><body></body></html>")
+    result = anghami.parse_playlist_page(html)
+    assert result["declared_total"] == 5, f"Expected declared_total=5, got {result['declared_total']}"
+    assert len(result["tracks"]) == 2
+
+
+def test_parse_playlist_page_real_fixture_declares_50():
+    """The frozen fixture's MusicPlaylist block declares 'numtracks': 50.
+    Verify that parsed declared_total captures this."""
+    result = anghami.parse_playlist_page(_read("playlist_page.html"))
+    assert result["declared_total"] == 50, f"Expected declared_total=50, got {result['declared_total']}"
+    assert len(result["tracks"]) > 0
+
+
+# Finding 2 tests: single track as dict instead of list
+def test_parse_playlist_page_single_track_as_dict():
+    """Per schema.org, a single-cardinality value may be a bare object instead of a 1-element array.
+    Ensure we normalize and parse it as 1 track instead of crashing with AttributeError."""
+    html = ('<html><head><script type="application/ld+json">'
+            '{"@type": "MusicPlaylist", "name": "SingleTrackTest", '
+            '"track": {"name": "Only Song", "byArtist": {"name": "Solo Artist"}}'
+            "}"
+            "</script></head><body></body></html>")
+    result = anghami.parse_playlist_page(html)
+    assert len(result["tracks"]) == 1
+    assert result["tracks"][0]["title"] == "Only Song"
+    assert result["tracks"][0]["artist"] == "Solo Artist"

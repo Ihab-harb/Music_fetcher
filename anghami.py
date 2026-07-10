@@ -51,15 +51,21 @@ def parse_playlist_page(html_text: str) -> dict:
         if not (isinstance(data, dict) and data.get("@type") == "MusicPlaylist"):
             continue
         tracks = []
-        for rec in data.get("track") or []:
+        raw_tracks = data.get("track") or []
+        if isinstance(raw_tracks, dict):
+            raw_tracks = [raw_tracks]
+        for rec in raw_tracks:
+            if not isinstance(rec, dict):
+                continue
             title = (rec.get("name") or "").strip()
             artist = ((rec.get("byArtist") or {}).get("name") or "").strip()
             if title:
                 tracks.append({"artist": artist, "title": title})
         if not tracks:
             raise ParseError("MusicPlaylist block has no readable tracks")
+        raw_declared = data.get("numTracks", data.get("numtracks"))
         try:
-            declared = int(data.get("numTracks") or 0)
+            declared = int(raw_declared or 0)
         except (TypeError, ValueError):
             declared = 0
         return {
