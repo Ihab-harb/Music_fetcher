@@ -76,3 +76,15 @@ def parse_playlist_page(html_text: str) -> dict:
     if "Playlist deleted" in html_text:
         raise PlaylistNotFound()
     raise ParseError("no MusicPlaylist ld+json block found")
+
+
+def fetch_anghami_playlist(url: str) -> dict:
+    validate_playlist_url(url)
+    clean_url = url.strip()
+    resp = requests.get(clean_url, headers=REQUEST_HEADERS, timeout=15)
+    if resp.status_code == 404:
+        raise PlaylistNotFound()
+    resp.raise_for_status()
+    result = parse_playlist_page(resp.text)
+    result["url"] = clean_url
+    return result

@@ -103,3 +103,55 @@ def test_parse_playlist_page_single_track_as_dict():
     assert len(result["tracks"]) == 1
     assert result["tracks"][0]["title"] == "Only Song"
     assert result["tracks"][0]["artist"] == "Solo Artist"
+
+
+class _FakeResponse:
+    def __init__(self, status_code=200, text=""):
+        self.status_code = status_code
+        self.text = text
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            raise anghami.requests.HTTPError(f"HTTP {self.status_code}")
+
+
+def test_fetch_happy_path(monkeypatch):
+    html = _read("playlist_page.html")
+    captured = {}
+
+    def fake_get(url, headers=None, timeout=None):
+        captured["url"] = url
+        captured["headers"] = headers
+        captured["timeout"] = timeout
+        return _FakeResponse(200, html)
+
+    monkeypatch.setattr(anghami.requests, "get", fake_get)
+    result = anghami.fetch_anghami_playlist(" https://play.anghami.com/playlist/6471050 ")
+    assert result["url"] == "https://play.anghami.com/playlist/6471050"
+    assert len(result["tracks"]) > 0
+    assert captured["headers"]["User-Agent"].startswith("Mozilla/5.0")
+    assert captured["timeout"] == 15
+
+
+def test_fetch_invalid_url_no_network(monkeypatch):
+    def explode(*a, **k):
+        raise AssertionError("network must not be touched for an invalid URL")
+
+    monkeypatch.setattr(anghami.requests, "get", explode)
+    with pytest.raises(anghami.InvalidUrl):
+        anghami.fetch_anghami_playlist("https://example.com/playlist/1")
+
+
+def test_fetch_404_maps_to_not_found(monkeypatch):
+    monkeypatch.setattr(anghami.requests, "get", lambda *a, **k: _FakeResponse(404, ""))
+    with pytest.raises(anghami.PlaylistNotFound):
+        anghami.fetch_anghami_playlist("https://play.anghami.com/playlist/1")
+
+
+def test_fetch_network_error_propagates(monkeypatch):
+    def boom(*a, **k):
+        raise anghami.requests.ConnectionError("dns fail")
+
+    monkeypatch.setattr(anghami.requests, "get", boom)
+    with pytest.raises(anghami.requests.RequestException):
+        anghami.fetch_anghami_playlist("https://play.anghami.com/playlist/1")
