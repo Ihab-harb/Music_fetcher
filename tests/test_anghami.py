@@ -112,17 +112,18 @@ class _FakeResponse:
 
     def raise_for_status(self):
         if self.status_code >= 400:
-            raise anghami.requests.HTTPError(f"HTTP {self.status_code}")
+            raise anghami.RequestError(f"HTTP {self.status_code}")
 
 
 def test_fetch_happy_path(monkeypatch):
     html = _read("playlist_page.html")
     captured = {}
 
-    def fake_get(url, headers=None, timeout=None):
+    def fake_get(url, headers=None, timeout=None, impersonate=None):
         captured["url"] = url
         captured["headers"] = headers
         captured["timeout"] = timeout
+        captured["impersonate"] = impersonate
         return _FakeResponse(200, html)
 
     monkeypatch.setattr(anghami.requests, "get", fake_get)
@@ -131,6 +132,7 @@ def test_fetch_happy_path(monkeypatch):
     assert len(result["tracks"]) > 0
     assert captured["headers"]["User-Agent"].startswith("Mozilla/5.0")
     assert captured["timeout"] == 15
+    assert captured["impersonate"] == "chrome"
 
 
 def test_fetch_invalid_url_no_network(monkeypatch):
@@ -150,8 +152,8 @@ def test_fetch_404_maps_to_not_found(monkeypatch):
 
 def test_fetch_network_error_propagates(monkeypatch):
     def boom(*a, **k):
-        raise anghami.requests.ConnectionError("dns fail")
+        raise anghami.RequestError("dns fail")
 
     monkeypatch.setattr(anghami.requests, "get", boom)
-    with pytest.raises(anghami.requests.RequestException):
+    with pytest.raises(anghami.RequestError):
         anghami.fetch_anghami_playlist("https://play.anghami.com/playlist/1")

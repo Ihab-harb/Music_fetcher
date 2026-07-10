@@ -7,3 +7,4 @@ watchfiles>=1.1
 python-multipart>=0.0.27
 requests>=2.31
 beautifulsoup4>=4.12
+curl_cffi>=0.15

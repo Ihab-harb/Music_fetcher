@@ -97,7 +97,7 @@ def test_anghami_fetch_truncated_flag(client, monkeypatch):
     (anghami.InvalidUrl("x"), 400, "That doesn't look like an Anghami playlist link"),
     (anghami.PlaylistNotFound(), 404, "Anghami says this playlist doesn't exist"),
     (anghami.ParseError("x"), 502, "Couldn't read the playlist page"),
-    (anghami.requests.ConnectionError("x"), 502, "Couldn't reach Anghami"),
+    (anghami.RequestError("x"), 502, "Couldn't reach Anghami"),
 ])
 def test_anghami_fetch_errors(client, monkeypatch, exc, status, detail_start):
     def boom(url):

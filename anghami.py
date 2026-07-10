@@ -3,12 +3,15 @@ here so a site change only ever touches this module."""
 import json
 import re
 
-import requests
+from curl_cffi import requests
+from curl_cffi.requests.exceptions import RequestException as RequestError
 from bs4 import BeautifulSoup
 
 PLAYLIST_URL_RE = re.compile(r"^https?://play\.anghami\.com/playlist/(\d+)(?:[/?#].*)?$")
 
-# Anghami returns 406 Not Acceptable without browser-like headers.
+# Anghami's WAF fingerprints the TLS handshake — plain requests/httpx get 403 even
+# with browser headers; curl_cffi with impersonate="chrome" passes. 406 without
+# browser-like Accept headers.
 REQUEST_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
                   "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
@@ -81,7 +84,7 @@ def parse_playlist_page(html_text: str) -> dict:
 def fetch_anghami_playlist(url: str) -> dict:
     validate_playlist_url(url)
     clean_url = url.strip()
-    resp = requests.get(clean_url, headers=REQUEST_HEADERS, timeout=15)
+    resp = requests.get(clean_url, headers=REQUEST_HEADERS, timeout=15, impersonate="chrome")
     if resp.status_code == 404:
         raise PlaylistNotFound()
     resp.raise_for_status()

@@ -15,7 +15,6 @@ from pydantic import BaseModel
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth
 from dotenv import load_dotenv
-import requests
 import anghami
 
 load_dotenv()
@@ -585,7 +584,7 @@ async def anghami_fetch(req: AnghamiFetchRequest):
         raise HTTPException(status_code=404, detail="Anghami says this playlist doesn't exist or isn't public.")
     except anghami.ParseError:
         raise HTTPException(status_code=502, detail="Couldn't read the playlist page — Anghami may have changed their site.")
-    except requests.RequestException:
+    except anghami.RequestError:
         raise HTTPException(status_code=502, detail="Couldn't reach Anghami — check your connection and try again.")
     # Shape tracks like scanned songs so the shared stream + frontend table work unchanged.
     songs = [{"filename": "", "album": "", "artist": t["artist"], "title": t["title"]}
