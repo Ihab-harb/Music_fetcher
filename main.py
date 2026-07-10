@@ -15,6 +15,8 @@ from pydantic import BaseModel
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth
 from dotenv import load_dotenv
+import requests
+import anghami
 
 load_dotenv()
 
@@ -27,6 +29,7 @@ METADATA_CACHE_FILE = DATA_DIR / "metadata_cache.json"
 UPLOAD_DIR = Path("uploads")
 
 _search_state = {"stop": False, "skip": False}
+_anghami_session: Optional[dict] = None
 _meta_cache: dict = {}
 _meta_dirty: bool = False
 _songs_cache: Optional[List[dict]] = None
@@ -59,6 +62,10 @@ class CreatePlaylistRequest(BaseModel):
 
 class AddFolderRequest(BaseModel):
     path: str
+
+
+class AnghamiFetchRequest(BaseModel):
+    url: str
 
 
 # ── Folder config ─────────────────────────────────────────────────────────────
@@ -562,6 +569,46 @@ async def search_stream(start_index: int = 0):
     # thread so a large first-time scan doesn't freeze the event loop.
     songs = await asyncio.to_thread(scan_music_folders)
     return spotify_search_stream_response(sp, songs, start_index)
+
+
+# ── Anghami import ────────────────────────────────────────────────────────────
+
+@app.post("/api/anghami/fetch")
+async def anghami_fetch(req: AnghamiFetchRequest):
+    global _anghami_session
+    try:
+        # Network fetch + parse are blocking — keep them off the event loop.
+        data = await asyncio.to_thread(anghami.fetch_anghami_playlist, req.url)
+    except anghami.InvalidUrl:
+        raise HTTPException(status_code=400, detail="That doesn't look like an Anghami playlist link (expected play.anghami.com/playlist/…)")
+    except anghami.PlaylistNotFound:
+        raise HTTPException(status_code=404, detail="Anghami says this playlist doesn't exist or isn't public.")
+    except anghami.ParseError:
+        raise HTTPException(status_code=502, detail="Couldn't read the playlist page — Anghami may have changed their site.")
+    except requests.RequestException:
+        raise HTTPException(status_code=502, detail="Couldn't reach Anghami — check your connection and try again.")
+    # Shape tracks like scanned songs so the shared stream + frontend table work unchanged.
+    songs = [{"filename": "", "album": "", "artist": t["artist"], "title": t["title"]}
+             for t in data["tracks"]]
+    _anghami_session = {
+        "name": data["name"], "url": data["url"],
+        "declared_total": data["declared_total"], "songs": songs,
+    }
+    return {
+        "name": data["name"], "url": data["url"], "total": len(songs),
+        "declared_total": data["declared_total"],
+        "truncated": data["declared_total"] > len(songs),
+    }
+
+
+@app.get("/api/anghami/search-stream")
+async def anghami_search_stream(start_index: int = 0):
+    sp = get_spotify()
+    if not sp:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    if not _anghami_session:
+        raise HTTPException(status_code=409, detail="No Anghami playlist fetched yet.")
+    return spotify_search_stream_response(sp, _anghami_session["songs"], start_index)
 
 
 # ── Playlists ─────────────────────────────────────────────────────────────────
