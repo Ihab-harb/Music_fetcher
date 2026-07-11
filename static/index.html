@@ -667,7 +667,7 @@
       <div class="section">
         <div class="section-label">Anghami Playlist</div>
         <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
-          <input id="ang-url-input" type="text" placeholder="https://play.anghami.com/playlist/…"
+          <input id="ang-url-input" type="text" placeholder="https://play.anghami.com/playlist/… or https://open.anghami.com/…"
             class="input" style="flex:1; min-width:16rem;"
             onkeydown="if(event.key==='Enter') fetchAnghamiPlaylist()" />
           <button id="ang-fetch-btn" onclick="fetchAnghamiPlaylist()" class="btn btn-success">Fetch Playlist</button>
@@ -1120,6 +1120,7 @@
       resumeIndex: 0,
       page: 0,
       filter: { text: '', status: 'all' },
+      prefilled: false,
       renderTimer: null,
       _es: null,
     };
@@ -1142,8 +1143,20 @@
 
     function startSearch(resume = false) {
       if (state.searching) return;
+      // One search at a time across BOTH tabs: two streams would exceed
+      // Spotify's rate limit and clobber each other's search cache.
+      const busyKey = Object.keys(views).find(k => views[k].state.searching);
+      if (busyKey && busyKey !== cfg.key) {
+        toast('A search is already running in the other tab — stop it there first.', 'warn');
+        return;
+      }
       if (!resume) {
-        state.songs = [];
+        if (state.prefilled) {
+          // Keep the preview rows; clear match state so the search refills them.
+          state.songs.forEach(item => { item.match = undefined; item.selected = false; item.skipped = false; });
+        } else {
+          state.songs = [];
+        }
         state.page = 0;
         state.stats = { matched: 0, notFound: 0, skipped: 0, selected: 0 };
       }
@@ -1199,7 +1212,15 @@
           return;
         }
 
-        state.songs.push({ idx: state.songs.length, song: d.song, match: d.match, selected: false, skipped: !!d.skipped });
+        const existing = state.songs[d.index];
+        if (existing) {
+          // Pre-filled preview row (Anghami tab): fill the match in place.
+          existing.song = d.song;
+          existing.match = d.match;
+          existing.skipped = !!d.skipped;
+        } else {
+          state.songs.push({ idx: state.songs.length, song: d.song, match: d.match, selected: false, skipped: !!d.skipped });
+        }
         if (d.match) state.stats.matched++;
         else if (d.skipped) state.stats.skipped++;
         else if (d.match === null) state.stats.notFound++;
@@ -1377,6 +1398,7 @@
       state.searching = false;
       state.stopped = false;
       state.resumeIndex = 0;
+      state.prefilled = false;
       $('progress-bar-wrap').classList.add('hide');
       $('search-btn').disabled = (cfg.key === 'anghami' && !anghamiPlaylist);
       renderTable();
@@ -1431,6 +1453,13 @@
       const data = await res.json();
       anghamiPlaylist = data;
       v.reset();  // clears any previous results; re-enables ang-search-btn (anghamiPlaylist is set)
+      v.state.songs = data.tracks.map((t, i) => ({
+        idx: i,
+        song: { artist: t.artist, title: t.title, filename: '', album: '' },
+        match: undefined, selected: false, skipped: false,
+      }));
+      v.state.prefilled = true;
+      v.renderTable();
 
       document.getElementById('ang-meta').classList.remove('hide');
       document.getElementById('ang-meta-name').textContent = data.name;

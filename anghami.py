@@ -9,6 +9,20 @@ from bs4 import BeautifulSoup
 
 PLAYLIST_URL_RE = re.compile(r"^https?://play\.anghami\.com/playlist/(\d+)(?:[/?#].*)?$")
 
+# Share links produced by the mobile app's Share button. These are Branch.io deep
+# links: followed normally they never reach the playlist (desktop -> landing page,
+# iOS -> App Store, Android -> app intent). Fetched with a social-crawler
+# User-Agent, though, the page embeds app deep-links (anghami://playlist/<id>)
+# we can extract. Dead/expired links expose no such marker.
+SHARE_URL_RE = re.compile(
+    r"^https?://(?:open\.anghami\.com|anghami\.app\.link)/([A-Za-z0-9]+)(?:[/?#].*)?$"
+)
+
+CRAWLER_HEADERS = {
+    "User-Agent": "Twitterbot/1.0",
+    "Accept": "text/html",
+}
+
 # Anghami's WAF fingerprints the TLS handshake — plain requests/httpx get 403 even
 # with browser headers; curl_cffi with impersonate="chrome" passes. 406 without
 # browser-like Accept headers.
@@ -36,11 +50,33 @@ class ParseError(AnghamiError):
     pass
 
 
+class ShareLinkIsNotPlaylist(AnghamiError):
+    pass
+
+
+class ShareLinkUnresolvable(AnghamiError):
+    pass
+
+
 def validate_playlist_url(url: str) -> str:
     m = PLAYLIST_URL_RE.match(url.strip())
     if not m:
         raise InvalidUrl(url)
     return m.group(1)
+
+
+def resolve_share_link(url: str) -> str:
+    """Resolve an open.anghami.com / anghami.app.link share link to the canonical
+    play.anghami.com playlist URL via the crawler-UA trick (see SHARE_URL_RE note)."""
+    resp = requests.get(url.strip(), headers=CRAWLER_HEADERS, timeout=15,
+                        max_redirects=10)
+    resp.raise_for_status()
+    m = re.search(r"anghami://playlist/(\d+)", resp.text)
+    if m:
+        return f"https://play.anghami.com/playlist/{m.group(1)}"
+    if "anghami://song/" in resp.text:
+        raise ShareLinkIsNotPlaylist(url)
+    raise ShareLinkUnresolvable(url)
 
 
 def parse_playlist_page(html_text: str) -> dict:
@@ -82,12 +118,18 @@ def parse_playlist_page(html_text: str) -> dict:
 
 
 def fetch_anghami_playlist(url: str) -> dict:
-    validate_playlist_url(url)
-    clean_url = url.strip()
-    resp = requests.get(clean_url, headers=REQUEST_HEADERS, timeout=15, impersonate="chrome")
+    """Fetch and parse a playlist from a canonical play.anghami.com URL or an
+    open.anghami.com/anghami.app.link share link (resolved first)."""
+    input_url = url.strip()
+    canonical = input_url
+    if SHARE_URL_RE.match(input_url):
+        canonical = resolve_share_link(input_url)
+    validate_playlist_url(canonical)
+    resp = requests.get(canonical, headers=REQUEST_HEADERS, timeout=15, impersonate="chrome")
     if resp.status_code == 404:
         raise PlaylistNotFound()
     resp.raise_for_status()
     result = parse_playlist_page(resp.text)
-    result["url"] = clean_url
+    result["url"] = input_url
+    result["resolved_url"] = canonical
     return result

@@ -55,12 +55,12 @@ SPOTIFY_CLIENT_SECRET="your_client_secret_here"
 From the project folder:
 
 ```
-python -m uvicorn main:app --reload --reload-include "*.py"
+python -m uvicorn main:app --reload --reload-include=*.py
 ```
 
 Then open http://127.0.0.1:8000 in your browser.
 
-> `--reload-include "*.py"` keeps uvicorn from restarting every time the app writes its JSON caches. The `watchfiles` package (in `requirements.txt`) is required for that flag to work.
+> `--reload-include=*.py` keeps uvicorn from restarting every time the app writes its JSON caches. The `watchfiles` package (in `requirements.txt`) is required for that flag to work. Use the `=` form exactly as shown — with a space (`--reload-include "*.py"`), newer uvicorn versions on Windows glob-expand the pattern into filenames and fail with `Got unexpected extra argument`.
 
 ---
 
@@ -95,9 +95,11 @@ While searching you can:
 - **Skip Track** — skip the song currently being scanned (useful if a track hangs)
 - See the *Now scanning:* line update live with the current track and overall progress
 
-Spotify search results are cached in `data/search_cache.json` and file metadata in `data/metadata_cache.json`, so subsequent runs are nearly instant for already-seen files. Cache files are written atomically (temp file + rename), so a crash mid-write can't corrupt them. Metadata entries for files you've deleted or renamed are pruned automatically on the next scan (entries for folders that are temporarily offline — e.g. an unplugged external drive — are kept).
+Spotify search results are cached in `data/search_cache.json` and file metadata in `data/metadata_cache.json`, so subsequent runs are nearly instant for already-seen files. "Not found" results are cached too, so a track that isn't on Spotify won't be re-queried on the next run. Cache files are written atomically (temp file + rename), so a crash mid-write can't corrupt them — and the cache is also saved if you close or reload the page mid-search, so already-fetched results are never re-requested. Metadata entries for files you've deleted or renamed are pruned automatically on the next scan (entries for folders that are temporarily offline — e.g. an unplugged external drive — are kept).
 
 If Spotify rate-limits the app (HTTP 429), the search stops gracefully with a "try again in N min" message — your progress so far is preserved and you can resume later.
+
+Only **one search runs at a time**, across both tabs (My Library and Import from Anghami) — starting a second one shows a warning instead. Two simultaneous searches would exceed Spotify's per-app rate limit and interfere with each other's cache; the Anghami and library searches share the same cache, so a song matched in one tab is instant in the other.
 
 ### Step 4 — Review results
 The table shows every file with its Spotify match. Use the filters above the table:
@@ -123,9 +125,11 @@ Duplicates are filtered out twice: once within your selection and once against t
 
 The **Import from Anghami** tab converts a public Anghami playlist into a Spotify playlist:
 
-1. Open the playlist in Anghami, use **Share → Copy Link** to get a URL like `https://play.anghami.com/playlist/123456`, and paste it into the tab.
-2. Click **Fetch Playlist** — the playlist name and track count appear. Private or deleted playlists can't be imported; only playlists visible on Anghami's public web player work.
-3. Click **Find on Spotify** and review matches exactly like the local-library flow (Stop/Continue, Skip, filters, selection).
+1. Paste either link form into the tab:
+   - the playlist's web URL — open [play.anghami.com](https://play.anghami.com) in a browser, open the playlist, and copy the address-bar link (`https://play.anghami.com/playlist/123456`), or
+   - a **share link** from the mobile app (`https://open.anghami.com/…`) — the app resolves it to the playlist automatically. Song share links and expired links are rejected with a clear message.
+2. Click **Fetch Playlist** — the playlist name and track count appear, and the playlist's tracks fill the table immediately so you can review what was found before matching anything on Spotify. Private or deleted playlists can't be imported; only playlists visible on Anghami's public web player work.
+3. Click **Find on Spotify** — matches fill the previewed rows in place; review exactly like the local-library flow (Stop/Continue, Skip, filters, selection).
 4. Pick or create a target Spotify playlist — **+ New** pre-fills the Anghami playlist's name — and click **Add to Playlist**.
 
 Anghami's page occasionally exposes only part of a very long playlist; if so, the app shows how many of the declared tracks it could read. Searches share the same cache as the library flow (`data/search_cache.json`).
@@ -183,19 +187,25 @@ These are useful when something looks wrong:
 ## Troubleshooting
 
 **`uvicorn` not recognized**
-Run it via Python: `python -m uvicorn main:app --reload --reload-include "*.py"`.
+Run it via Python: `python -m uvicorn main:app --reload --reload-include=*.py`.
 
 **Redirect URI not accepted on Spotify dashboard**
 Use `http://127.0.0.1:8000/callback`, not `localhost`. Spotify stopped accepting `localhost` as a hostname in April 2025.
 
 **`Could not create playlist: 403 Forbidden, reason: None`**
-Your Spotify account isn't on the app's User Management allowlist (or the entry didn't save). See step 7 of the Spotify Developer Setup. After adding yourself, **Logout** in the app, wait ~5 minutes for propagation, then **Connect Spotify** again. Verify with `/api/auth-info` that the email there matches what's in the dashboard.
+Three known causes, in order of likelihood:
+
+1. **Outdated app version.** Spotify removed `POST /users/{id}/playlists` for Development Mode apps in February 2026 — it returns a bare 403 even for perfectly authorized accounts. The app now creates playlists via `POST /me/playlists`; if you see this error on current code, it's one of the causes below.
+2. **Allowlist.** Your Spotify account isn't on the app's User Management allowlist (or the entry didn't save — re-open the dashboard tab to confirm it persisted). See step 7 of the Spotify Developer Setup. After adding yourself, **Logout** in the app, wait ~5 minutes for propagation, then **Connect Spotify** again.
+3. **Premium.** Since February 2026, the account that *owns* the dev app must have an active Spotify Premium subscription; if it lapses, writes fail app-wide.
+
+`/api/debug-create-playlist` shows Spotify's raw response and is the fastest way to tell these apart.
 
 **Spotify rate-limited the app**
 Spotify enforces a rolling per-app limit (~180 requests/minute). The search loop sleeps 0.5 s between API calls to stay well under it. If you hit a 429, the search pauses cleanly — wait the indicated cooldown and click **Continue**. Long cooldowns (hours) are escalation penalties; once the timer ends, the cache means you don't pay the API cost for already-searched tracks.
 
 **Page hangs / unresponsive while scanning a large library**
-Folder scanning and each Spotify search run in a worker thread, and the search loop yields to the event loop on every iteration, so the page (and the Stop/Skip buttons) should stay responsive. If it doesn't, make sure you're running with `--reload-include "*.py"` (the bare `--reload` watches every file, including `data/*.json`, and restarts mid-search). Restart the server.
+Folder scanning and each Spotify search run in a worker thread, and the search loop yields to the event loop on every iteration, so the page (and the Stop/Skip buttons) should stay responsive. If it doesn't, make sure you're running with `--reload-include=*.py` (the bare `--reload` watches every file, including `data/*.json`, and restarts mid-search). Restart the server.
 
 **Song not found on Spotify**
 Search uses the file's artist + title tags. Files with missing or incorrect tags often fail. Re-tag with [Mp3tag](https://www.mp3tag.de/) and delete `data/search_cache.json` to force a re-search.
@@ -208,6 +218,9 @@ Open the Command Palette (`Ctrl+Shift+P`), run **Python: Select Interpreter**, a
 
 **Anghami import says the site may have changed**
 The importer reads the playlist data embedded in Anghami's public web page. If Anghami changes that page, fetching fails with this message — check for an updated version of this app, or file an issue. All Anghami-specific code is in `anghami.py`.
+
+**Share link can't be resolved**
+`open.anghami.com` links are app-share deep links. The app resolves them by reading the link's public preview page; links that are expired, region-locked, or point at a single song can't be imported. Open [play.anghami.com](https://play.anghami.com) in a browser, find the playlist, and paste the address-bar link instead.
 
 ---
 

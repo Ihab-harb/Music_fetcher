@@ -28,6 +28,7 @@ METADATA_CACHE_FILE = DATA_DIR / "metadata_cache.json"
 UPLOAD_DIR = Path("uploads")
 
 _search_state = {"stop": False, "skip": False}
+_stream_active: bool = False  # one SSE search loop at a time; see spotify_search_stream_response
 _anghami_session: Optional[dict] = None
 _meta_cache: dict = {}
 _meta_dirty: bool = False
@@ -359,17 +360,17 @@ def debug_create_playlist(name: str = "MusicFetcher Debug Test"):
         user_id = me_resp.json().get("id")
     except Exception:
         pass
-    create_resp = None
-    if user_id:
-        create_resp = requests.post(
-            f"https://api.spotify.com/v1/users/{user_id}/playlists",
-            headers={
-                "Authorization": f"Bearer {access_token}",
-                "Content-Type": "application/json",
-            },
-            json={"name": name, "public": False, "description": "debug"},
-            timeout=10,
-        )
+    # POST /me/playlists — the /users/{id}/playlists route was removed for
+    # Development Mode apps in Feb 2026 and returns a bare 403.
+    create_resp = requests.post(
+        "https://api.spotify.com/v1/me/playlists",
+        headers={
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json",
+        },
+        json={"name": name, "public": False, "description": "debug"},
+        timeout=10,
+    )
     return {
         "client_id_in_use": os.getenv("SPOTIFY_CLIENT_ID"),
         "token_scope": token.get("scope"),
@@ -484,72 +485,82 @@ def search_control(action: Literal["stop", "skip"]):
 def spotify_search_stream_response(sp: spotipy.Spotify, songs: List[dict], start_index: int) -> StreamingResponse:
     """Shared SSE search loop: streams one Spotify match per song. Used by both the
     local-library flow and the Anghami import flow."""
+    global _stream_active
+    # Only one search may stream at a time: two concurrent loops would double the
+    # request rate past Spotify's ~180/min limit, and their separate cache copies
+    # would clobber each other on save (last write wins, losing fresh results).
+    if _stream_active:
+        raise HTTPException(status_code=409, detail="A search is already running. Stop it before starting another.")
+    _stream_active = True
     cache = load_cache()
     _search_state["stop"] = False
     _search_state["skip"] = False
 
     async def generate():
+        global _stream_active
         dirty = False
-        for i, song in enumerate(songs):
-            if i < start_index:
-                continue
+        try:
+            for i, song in enumerate(songs):
+                if i < start_index:
+                    continue
 
-            # Always yield to the event loop so concurrent POSTs (stop, skip,
-            # create-playlist, etc.) are dispatched promptly. Without this, a
-            # run of cached songs has no real await point and the loop hogs
-            # the event loop, queueing every other request behind it.
-            await asyncio.sleep(0)
+                # Always yield to the event loop so concurrent POSTs (stop, skip,
+                # create-playlist, etc.) are dispatched promptly. Without this, a
+                # run of cached songs has no real await point and the loop hogs
+                # the event loop, queueing every other request behind it.
+                await asyncio.sleep(0)
 
-            if _search_state["stop"]:
-                if dirty:
+                if _search_state["stop"]:
+                    yield f"data: {json.dumps({'stopped': True, 'index': i, 'total': len(songs)})}\n\n"
+                    return
+
+                if _search_state["skip"]:
+                    _search_state["skip"] = False
+                    payload = json.dumps({"index": i, "total": len(songs), "song": song, "match": None, "skipped": True})
+                    yield f"data: {payload}\n\n"
+                    continue
+
+                key = make_cache_key(song["artist"], song["title"])
+                if key in cache:
+                    match = cache[key]
+                else:
+                    try:
+                        # sp.search is a blocking HTTP call — keep it off the event
+                        # loop so Stop/Skip POSTs are handled while it's in flight.
+                        match = await asyncio.to_thread(
+                            search_spotify_track, sp, song["artist"], song["title"]
+                        )
+                        cache[key] = match
+                        dirty = True
+                    except spotipy.SpotifyException as e:
+                        if getattr(e, "http_status", None) == 429:
+                            retry_after = 60
+                            try:
+                                retry_after = int((e.headers or {}).get("Retry-After", 60))
+                            except Exception:
+                                pass
+                            yield f"data: {json.dumps({'rate_limited': True, 'retry_after': retry_after, 'index': i, 'total': len(songs)})}\n\n"
+                            return
+                        match = None
+                    except Exception:
+                        match = None
+                    await asyncio.sleep(0.5)
+
+                if dirty and i % 100 == 0:
                     save_cache(cache)
-                yield f"data: {json.dumps({'stopped': True, 'index': i, 'total': len(songs)})}\n\n"
-                return
+                    dirty = False
 
-            if _search_state["skip"]:
-                _search_state["skip"] = False
-                payload = json.dumps({"index": i, "total": len(songs), "song": song, "match": None, "skipped": True})
+                payload = json.dumps({"index": i, "total": len(songs), "song": song, "match": match})
                 yield f"data: {payload}\n\n"
-                continue
 
-            key = make_cache_key(song["artist"], song["title"])
-            if key in cache:
-                match = cache[key]
-            else:
-                try:
-                    # sp.search is a blocking HTTP call — keep it off the event
-                    # loop so Stop/Skip POSTs are handled while it's in flight.
-                    match = await asyncio.to_thread(
-                        search_spotify_track, sp, song["artist"], song["title"]
-                    )
-                    cache[key] = match
-                    dirty = True
-                except spotipy.SpotifyException as e:
-                    if getattr(e, "http_status", None) == 429:
-                        retry_after = 60
-                        try:
-                            retry_after = int((e.headers or {}).get("Retry-After", 60))
-                        except Exception:
-                            pass
-                        if dirty:
-                            save_cache(cache)
-                        yield f"data: {json.dumps({'rate_limited': True, 'retry_after': retry_after, 'index': i, 'total': len(songs)})}\n\n"
-                        return
-                    match = None
-                except Exception:
-                    match = None
-                await asyncio.sleep(0.5)
-
-            if dirty and i % 100 == 0:
+            yield f"data: {json.dumps({'done': True, 'total': len(songs)})}\n\n"
+        finally:
+            # Runs on every exit — done, stop, rate-limit, AND client disconnect
+            # (browser tab closed mid-search cancels this generator). Persisting
+            # here means already-paid-for Spotify results are never re-requested.
+            if dirty:
                 save_cache(cache)
-                dirty = False
-
-            payload = json.dumps({"index": i, "total": len(songs), "song": song, "match": match})
-            yield f"data: {payload}\n\n"
-
-        if dirty:
-            save_cache(cache)
-        yield f"data: {json.dumps({'done': True, 'total': len(songs)})}\n\n"
+            _stream_active = False
 
     return StreamingResponse(
         generate(),
@@ -579,7 +590,11 @@ async def anghami_fetch(req: AnghamiFetchRequest):
         # Network fetch + parse are blocking — keep them off the event loop.
         data = await asyncio.to_thread(anghami.fetch_anghami_playlist, req.url)
     except anghami.InvalidUrl:
-        raise HTTPException(status_code=400, detail="That doesn't look like an Anghami playlist link (expected play.anghami.com/playlist/…)")
+        raise HTTPException(status_code=400, detail="That doesn't look like an Anghami playlist link (expected play.anghami.com/playlist/… or an open.anghami.com share link)")
+    except anghami.ShareLinkIsNotPlaylist:
+        raise HTTPException(status_code=400, detail="That share link points to a single song, not a playlist.")
+    except anghami.ShareLinkUnresolvable:
+        raise HTTPException(status_code=404, detail="Couldn't resolve this share link — it may be expired or app-only. Open play.anghami.com in a browser, find the playlist, and paste the address-bar link instead.")
     except anghami.PlaylistNotFound:
         raise HTTPException(status_code=404, detail="Anghami says this playlist doesn't exist or isn't public.")
     except anghami.ParseError:
@@ -594,9 +609,10 @@ async def anghami_fetch(req: AnghamiFetchRequest):
         "declared_total": data["declared_total"], "songs": songs,
     }
     return {
-        "name": data["name"], "url": data["url"], "total": len(songs),
-        "declared_total": data["declared_total"],
+        "name": data["name"], "url": data["url"], "resolved_url": data["resolved_url"],
+        "total": len(songs), "declared_total": data["declared_total"],
         "truncated": data["declared_total"] > len(songs),
+        "tracks": data["tracks"],
     }
 
 
@@ -635,8 +651,9 @@ def create_playlist(req: CreatePlaylistRequest):
     if not name:
         raise HTTPException(status_code=400, detail="Playlist name is empty")
     try:
-        user_id = sp.current_user()["id"]
-        playlist = sp.user_playlist_create(user_id, name, public=False)
+        # POST /me/playlists — Spotify removed POST /users/{id}/playlists for
+        # Development Mode apps in Feb 2026; the old route returns a bare 403.
+        playlist = sp.current_user_playlist_create(name, public=False)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Spotify error: {e}")
     return {"id": playlist["id"], "name": playlist["name"]}
